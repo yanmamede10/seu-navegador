@@ -234,46 +234,60 @@ impl BrowserBackend for CefEngine {
     }
 
     fn navigate_tab(&self, tab_id: TabId, url: &str) {
-        if let Ok(guard) = self.state.lock() {
-            if let Some(browser) = guard.tab_browsers.get(&tab_id) {
-                if let Some(frame) = browser.main_frame() {
-                    let target = if url == seu_core::NEWTAB_URL {
-                        let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
-                        format!("seu://newtab/?win={win_id}")
-                    } else {
-                        url.to_string()
-                    };
-                    let cef_url = CefString::from(target.as_str());
-                    frame.load_url(Some(&cef_url));
-                }
+        // Release the state lock BEFORE calling CEF, because `load_url` can synchronously
+        // trigger `on_before_browse` / `on_loading_state_change` on the UI thread.
+        let nav = self.state.lock().ok().and_then(|guard| {
+            let browser = guard.tab_browsers.get(&tab_id)?.clone();
+            let target = if url == seu_core::NEWTAB_URL {
+                let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
+                format!("seu://newtab/?win={win_id}")
+            } else {
+                url.to_string()
+            };
+            Some((browser, target))
+        });
+
+        if let Some((browser, target)) = nav {
+            if let Some(frame) = browser.main_frame() {
+                let cef_url = CefString::from(target.as_str());
+                frame.load_url(Some(&cef_url));
             }
         }
     }
 
     fn reload_tab(&self, tab_id: TabId) {
-        if let Ok(guard) = self.state.lock() {
-            if let Some(browser) = guard.tab_browsers.get(&tab_id) {
-                browser.reload();
-            }
+        let browser = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|g| g.tab_browsers.get(&tab_id).cloned());
+        if let Some(browser) = browser {
+            browser.reload();
         }
     }
 
     fn go_back(&self, tab_id: TabId) {
-        if let Ok(guard) = self.state.lock() {
-            if let Some(browser) = guard.tab_browsers.get(&tab_id) {
-                if browser.can_go_back() != 0 {
-                    browser.go_back();
-                }
+        let browser = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|g| g.tab_browsers.get(&tab_id).cloned());
+        if let Some(browser) = browser {
+            if browser.can_go_back() != 0 {
+                browser.go_back();
             }
         }
     }
 
     fn go_forward(&self, tab_id: TabId) {
-        if let Ok(guard) = self.state.lock() {
-            if let Some(browser) = guard.tab_browsers.get(&tab_id) {
-                if browser.can_go_forward() != 0 {
-                    browser.go_forward();
-                }
+        let browser = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|g| g.tab_browsers.get(&tab_id).cloned());
+        if let Some(browser) = browser {
+            if browser.can_go_forward() != 0 {
+                browser.go_forward();
             }
         }
     }
@@ -500,34 +514,40 @@ fn broadcast_window_state(state: &Arc<Mutex<SharedState>>, window_id: WindowId) 
 }
 
 fn broadcast_settings_all(state: &Arc<Mutex<SharedState>>) {
-    let (settings, targets, host) = {
+    let (settings, shell_and_overlay, tab_browsers, host) = {
         let Ok(guard) = state.lock() else {
             return;
         };
-        let mut browsers = Vec::new();
+        let mut chrome_views = Vec::new();
         for win in guard.windows.values() {
             if let Some(s) = &win.shell {
-                browsers.push(s.clone());
+                chrome_views.push(s.clone());
             }
             if let Some(o) = &win.overlay {
-                browsers.push(o.clone());
+                chrome_views.push(o.clone());
             }
         }
-        for b in guard.tab_browsers.values() {
-            if let Some(frame) = b.main_frame() {
-                let u = CefString::from(&frame.url()).to_string();
-                if is_privileged_origin(&u) {
-                    browsers.push(b.clone());
-                }
-            }
-        }
-        (guard.core.settings.clone(), browsers, guard.host.clone())
+        let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+        (
+            guard.core.settings.clone(),
+            chrome_views,
+            tabs,
+            guard.host.clone(),
+        )
     };
 
     host.on_settings_changed(&settings);
     let payload = serde_json::json!({ "type": "settings", "settings": settings });
-    for b in targets {
+    for b in shell_and_overlay {
         push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
     }
 }
 
@@ -966,24 +986,26 @@ wrap_browser_process_handler! {
             let domain = CefString::from("");
             register_scheme_handler_factory(Some(&scheme), Some(&domain), Some(&mut factory));
 
-            let (window_id, tab_id, initial_url) = {
+            let (router, window_id, tab_id, initial_url) = {
                 let Ok(mut guard) = self.state.lock() else {
                     return;
                 };
-                guard.router.add_handler(
-                    Arc::new(SeuBridgeQueryHandler {
-                        state: self.state.clone(),
-                    }),
-                    true,
-                );
+                let router = guard.router.clone();
                 let (wid, tid) = guard.core.create_window(false, None);
                 let url = guard
                     .core
                     .get_tab(tid)
                     .map(|t| t.url.clone())
                     .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
-                (wid, tid, url)
+                (router, wid, tid, url)
             };
+
+            router.add_handler(
+                Arc::new(SeuBridgeQueryHandler {
+                    state: self.state.clone(),
+                }),
+                true,
+            );
 
             create_full_browser_window(&self.state, window_id, false, tab_id, &initial_url);
         }
@@ -1139,7 +1161,7 @@ wrap_display_handler! {
 
         fn on_address_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             url: Option<&CefString>,
         ) {
@@ -1155,14 +1177,16 @@ wrap_display_handler! {
             } else {
                 raw_url
             };
+            let can_back = browser.as_ref().map(|b| b.can_go_back() != 0);
+            let can_fwd = browser.as_ref().map(|b| b.can_go_forward() != 0);
             if let Ok(mut guard) = self.state.lock() {
                 let _ = guard.core.update_tab_navigation(
                     tab_id,
                     Some(display_url),
                     None,
                     None,
-                    None,
-                    None,
+                    can_back,
+                    can_fwd,
                 );
             }
             broadcast_window_state(&self.state, window_id);
@@ -1214,6 +1238,7 @@ wrap_life_span_handler! {
                 return;
             };
             let mut broadcast_win: Option<WindowId> = None;
+            let mut visibility_update: Option<bool> = None;
 
             if let Ok(mut guard) = self.state.lock() {
                 match self.kind {
@@ -1227,9 +1252,7 @@ wrap_life_span_handler! {
                         if let Some(w) = guard.windows.get_mut(&wid) {
                             w.overlay = Some(browser.clone());
                         }
-                        if let Some(host) = browser.host() {
-                            apply_child_hwnd_visibility(host.window_handle(), false, None, false);
-                        }
+                        visibility_update = Some(false);
                     }
                     ViewKind::Tab { window_id, tab_id } => {
                         guard.tab_browsers.insert(tab_id, browser.clone());
@@ -1239,16 +1262,15 @@ wrap_life_span_handler! {
                             .ok()
                             .and_then(|s| s.active_tab_id)
                             == Some(tab_id);
-                        if let Some(host) = browser.host() {
-                            apply_child_hwnd_visibility(
-                                host.window_handle(),
-                                is_active,
-                                None,
-                                false,
-                            );
-                        }
+                        visibility_update = Some(is_active);
                         broadcast_win = Some(window_id);
                     }
+                }
+            }
+
+            if let Some(visible) = visibility_update {
+                if let Some(host) = browser.host() {
+                    apply_child_hwnd_visibility(host.window_handle(), visible, None, false);
                 }
             }
 
@@ -1280,8 +1302,9 @@ wrap_request_handler! {
             _user_gesture: i32,
             _is_redirect: i32,
         ) -> i32 {
-            if let Ok(g) = self.state.lock() {
-                g.router.on_before_browse(browser.cloned(), frame.cloned());
+            let router = self.state.lock().ok().map(|g| g.router.clone());
+            if let Some(router) = router {
+                router.on_before_browse(browser.cloned(), frame.cloned());
             }
             0
         }
@@ -1293,8 +1316,9 @@ wrap_request_handler! {
             _error_code: i32,
             _error_string: Option<&CefString>,
         ) {
-            if let Ok(g) = self.state.lock() {
-                g.router.on_render_process_terminated(browser.cloned());
+            let router = self.state.lock().ok().map(|g| g.router.clone());
+            if let Some(router) = router {
+                router.on_render_process_terminated(browser.cloned());
             }
         }
     }
