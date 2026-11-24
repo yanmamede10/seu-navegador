@@ -240,6 +240,7 @@ pub fn tokens_to_css(tokens: &ThemeTokens) -> String {
     css
 }
 
+#[derive(Debug)]
 pub struct ThemeRegistry {
     themes: BTreeMap<String, LoadedTheme>,
 }
@@ -305,7 +306,7 @@ fn load_embedded_theme_dir(dir: &Dir<'_>) -> Result<LoadedTheme, ThemeError> {
         let full_path = format!("{dir_name}/{rel}");
         let file = BUILTIN_THEMES_DIR
             .get_file(&full_path)
-            .ok_or_else(|| ThemeError::MissingFile(full_path))?;
+            .ok_or(ThemeError::MissingFile(full_path))?;
         file.contents_utf8()
             .map(|s| s.to_string())
             .ok_or_else(|| ThemeError::MissingFile(rel.to_string()))
