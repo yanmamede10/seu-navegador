@@ -214,38 +214,44 @@ a:hover {
 
 .y2k-globe {
   position: absolute;
-  right: 7%;
-  top: 18px;
-  width: 144px;
-  height: 144px;
+  right: 5.5%;
+  top: 12px;
+  width: 186px;
+  height: 155px;
+  filter: drop-shadow(0 0 12px rgba(79, 216, 255, 0.35));
   pointer-events: none;
 }
 
 .y2k-starburst {
   position: absolute;
-  left: 8%;
-  top: 24px;
-  width: 92px;
-  height: 92px;
-  transform: rotate(-12deg);
+  left: 6%;
+  top: 18px;
+  width: 136px;
+  height: 116px;
+  transform: rotate(-8deg);
+  filter: drop-shadow(0 0 10px rgba(182, 255, 59, 0.25));
   pointer-events: none;
 }
 
-.y2k-heart-pink {
+.y2k-tribal-sigil {
   position: absolute;
-  right: 22%;
-  bottom: 120px;
-  width: 44px;
-  height: 38px;
+  right: 19%;
+  bottom: 72px;
+  width: 136px;
+  height: 70px;
+  transform: rotate(-7deg);
+  filter: drop-shadow(0 0 10px rgba(61, 91, 255, 0.4));
   pointer-events: none;
 }
 
-.y2k-heart-lime {
+.y2k-bolt-emblem {
   position: absolute;
-  left: 29%;
-  bottom: 50px;
-  width: 30px;
-  height: 26px;
+  left: 25%;
+  bottom: 34px;
+  width: 82px;
+  height: 82px;
+  transform: rotate(10deg);
+  filter: drop-shadow(0 0 10px rgba(182, 255, 59, 0.35));
   pointer-events: none;
 }
 

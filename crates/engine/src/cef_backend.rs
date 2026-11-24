@@ -1177,7 +1177,7 @@ wrap_client! {
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {
-            Some(SeuRequestHandler::new(self.state.clone()))
+            Some(SeuRequestHandler::new(self.state.clone(), self.kind))
         }
 
         fn on_process_message_received(
@@ -1345,6 +1345,40 @@ wrap_life_span_handler! {
             }
         }
 
+        fn on_before_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: ::std::os::raw::c_int,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            if let ViewKind::Tab { window_id, tab_id } = self.kind {
+                let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+                if !url.is_empty() && !url.eq_ignore_ascii_case("about:blank") {
+                    let open_bg = target_disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB;
+                    let mut task = OpenTabUrlTask::new(
+                        self.state.clone(),
+                        window_id,
+                        tab_id,
+                        url,
+                        open_bg,
+                    );
+                    post_task(ThreadId::UI, Some(&mut task));
+                }
+            }
+            // Return 1 to always cancel CEF's default standalone popup window.
+            1
+        }
+
         fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
             // All CEF browsers in Seu Navegador are embedded child HWNDs (`set_as_child`).
             // Detach and destroy ONLY the child CEF HWND asynchronously on the next UI tick,
@@ -1371,9 +1405,39 @@ wrap_life_span_handler! {
 wrap_request_handler! {
     struct SeuRequestHandler {
         state: Arc<Mutex<SharedState>>,
+        kind: ViewKind,
     }
 
     impl RequestHandler {
+        fn on_open_urlfrom_tab(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            target_url: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            if target_disposition == WindowOpenDisposition::CURRENT_TAB {
+                return 0;
+            }
+            if let ViewKind::Tab { window_id, tab_id } = self.kind {
+                let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+                if !url.is_empty() {
+                    let open_bg = target_disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB;
+                    let mut task = OpenTabUrlTask::new(
+                        self.state.clone(),
+                        window_id,
+                        tab_id,
+                        url,
+                        open_bg,
+                    );
+                    post_task(ThreadId::UI, Some(&mut task));
+                    return 1;
+                }
+            }
+            0
+        }
+
         fn on_before_browse(
             &self,
             browser: Option<&mut Browser>,
@@ -1461,6 +1525,60 @@ wrap_task! {
                     SetParent(hwnd, std::ptr::null_mut());
                     DestroyWindow(hwnd);
                 }
+            }
+        }
+    }
+}
+
+wrap_task! {
+    struct OpenTabUrlTask {
+        state: Arc<Mutex<SharedState>>,
+        window_id: WindowId,
+        tab_id: TabId,
+        url: String,
+        new_background_tab: bool,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let effects = {
+                let Ok(mut guard) = self.state.lock() else {
+                    return;
+                };
+                if self.new_background_tab {
+                    match guard
+                        .core
+                        .create_tab(self.window_id, Some(&self.url), false)
+                    {
+                        Ok(new_tab_id) => vec![
+                            HostEffect::CreateTabView {
+                                window_id: self.window_id,
+                                tab_id: new_tab_id,
+                                url: self.url.clone(),
+                            },
+                            HostEffect::BroadcastState {
+                                window_id: self.window_id,
+                            },
+                        ],
+                        Err(_) => Vec::new(),
+                    }
+                } else {
+                    match guard.core.navigate_tab(self.tab_id, &self.url) {
+                        Ok(resolved) => vec![
+                            HostEffect::NavigateTabView {
+                                tab_id: self.tab_id,
+                                url: resolved,
+                            },
+                            HostEffect::BroadcastState {
+                                window_id: self.window_id,
+                            },
+                        ],
+                        Err(_) => Vec::new(),
+                    }
+                }
+            };
+            if !effects.is_empty() {
+                execute_effects(&self.state, effects);
             }
         }
     }

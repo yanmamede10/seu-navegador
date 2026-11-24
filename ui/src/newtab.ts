@@ -32,6 +32,7 @@ const shortcuts: ShortcutItem[] = [
 ];
 
 let activeCategory: SearchCategoryId = "web";
+let alertDismissed = false;
 let currentTheme: LoadedTheme | null = null;
 let themeList: ThemeSummary[] = [];
 let currentSnapshot: WindowSnapshot | null = null;
@@ -101,6 +102,23 @@ const runtime = new DeclarativeRuntime(mountEl, {
           }
         });
         break;
+      case "tabs.navigate":
+        if (param) {
+          void (async () => {
+            const snap =
+              currentSnapshot ??
+              (await callBridge<WindowSnapshot>("windows.getSnapshot", {
+                window_id: windowId,
+              }).catch(() => undefined));
+            if (snap?.active_tab_id) {
+              await callBridge("tabs.navigate", {
+                tab_id: snap.active_tab_id,
+                input: param,
+              });
+            }
+          })();
+        }
+        break;
       case "tabs.navigateThemes":
         if (currentSnapshot?.active_tab_id) {
           void callBridge("tabs.navigate", {
@@ -108,6 +126,10 @@ const runtime = new DeclarativeRuntime(mountEl, {
             input: "seu://themes",
           });
         }
+        break;
+      case "ui.dismissAlert":
+        alertDismissed = true;
+        renderAll();
         break;
       case "tabs.create":
         void callBridge("tabs.create", { window_id: windowId, activate: true });
@@ -153,6 +175,9 @@ function renderAll(): void {
 
   runtime.render(
     {
+      ui: {
+        showAlert: !alertDismissed,
+      },
       window: {
         liveTabsCount,
       },

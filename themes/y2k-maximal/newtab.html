@@ -19,35 +19,65 @@
       <path d="M-40 236C280 70 540 280 780 146S1200 20 1480 116" fill="none" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="3"></path>
     </svg>
 
-    <svg class="y2k-globe" viewBox="0 0 100 100" fill="none" stroke="#4FD8FF" stroke-width="1.4" aria-hidden="true">
-      <circle cx="50" cy="50" r="46"></circle>
-      <ellipse cx="50" cy="50" rx="20" ry="46"></ellipse>
-      <ellipse cx="50" cy="50" rx="36" ry="46"></ellipse>
-      <path d="M4 50h92M10 28h80M10 72h80"></path>
+    <svg class="y2k-globe" viewBox="0 0 180 150" fill="none" aria-hidden="true">
+      <g stroke="#4FD8FF" stroke-width="1.6">
+        <circle cx="90" cy="75" r="46"></circle>
+        <ellipse cx="90" cy="75" rx="18" ry="46"></ellipse>
+        <ellipse cx="90" cy="75" rx="34" ry="46"></ellipse>
+        <path d="M44 75h92M50 53h80M50 97h80"></path>
+      </g>
+      <path d="M22 106C10 88 46 58 100 44C144 33 172 37 166 54C160 70 128 96 76 112C48 121 29 117 22 106Z" stroke="#3D5BFF" stroke-width="6" stroke-linecap="round"></path>
+      <path d="M26 104C16 88 50 61 100 48C140 38 166 41 162 55" stroke="#B6FF3B" stroke-width="2" stroke-linecap="round"></path>
+      <path d="M36 22L39 33L50 36L39 39L36 50L33 39L22 36L33 33Z" fill="#4FD8FF"></path>
+      <path d="M148 94L151 103L160 106L151 109L148 118L145 109L136 106L145 103Z" fill="#B6FF3B"></path>
     </svg>
-    <svg class="y2k-starburst" viewBox="0 0 100 100" aria-hidden="true">
-      <polygon points="50,0 58,30 88,12 70,40 100,50 70,60 88,88 58,70 50,100 42,70 12,88 30,60 0,50 30,40 12,12 42,30" fill="#B6FF3B"></polygon>
+
+    <svg class="y2k-starburst" viewBox="0 0 140 120" fill="none" aria-hidden="true">
+      <g fill="#4FD8FF" opacity="0.45">
+        <circle cx="44" cy="22" r="3"></circle>
+        <circle cx="58" cy="18" r="3.5"></circle>
+        <circle cx="72" cy="18" r="3.5"></circle>
+        <circle cx="86" cy="22" r="3"></circle>
+        <circle cx="32" cy="34" r="3"></circle>
+        <circle cx="98" cy="34" r="3"></circle>
+        <circle cx="28" cy="50" r="2.5"></circle>
+        <circle cx="102" cy="50" r="2.5"></circle>
+        <circle cx="34" cy="68" r="2.5"></circle>
+        <circle cx="96" cy="68" r="2.5"></circle>
+        <circle cx="48" cy="80" r="3"></circle>
+        <circle cx="64" cy="84" r="3.5"></circle>
+        <circle cx="80" cy="82" r="3"></circle>
+      </g>
+      <ellipse cx="68" cy="56" rx="54" ry="20" transform="rotate(-18 68 56)" stroke="#B6FF3B" stroke-width="3.5"></ellipse>
+      <polygon points="30,22 37,39 56,39 41,50 47,68 30,57 13,68 19,50 4,39 23,39" fill="#B6FF3B" stroke="#070B24" stroke-width="2.5"></polygon>
+      <path d="M114 20L117 28L125 31L117 34L114 42L111 34L103 31L111 28Z" fill="#FFFFFF"></path>
     </svg>
-    <svg class="y2k-heart-pink" viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true">
-      <path d="M1 0h2v1h1V0h2v1h1v2h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1H0V1h1z" fill="#FF2E93"></path>
+
+    <svg class="y2k-tribal-sigil" viewBox="0 0 140 72" fill="none" aria-hidden="true">
+      <path d="M70 10L78 28L134 14L104 38L126 52L80 44L70 64L60 44L14 52L36 38L6 14L62 28Z" fill="#0B1240" stroke="#4FD8FF" stroke-width="2.5" stroke-linejoin="round"></path>
+      <path d="M70 18L75 31L108 25L86 38L75 42L70 54L65 42L54 38L32 25L65 31Z" fill="#3D5BFF"></path>
+      <path d="M70 24L73 34L83 37L73 40L70 50L67 40L57 37L67 34Z" fill="#B6FF3B"></path>
     </svg>
-    <svg class="y2k-heart-lime" viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true">
-      <path d="M1 0h2v1h1V0h2v1h1v2h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1H0V1h1z" fill="#B6FF3B"></path>
+
+    <svg class="y2k-bolt-emblem" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <ellipse cx="48" cy="48" rx="40" ry="15" transform="rotate(-28 48 48)" stroke="#4FD8FF" stroke-width="3"></ellipse>
+      <polygon points="56,8 24,52 46,52 38,88 74,42 50,42" fill="#B6FF3B" stroke="#070B24" stroke-width="3" stroke-linejoin="round"></polygon>
+      <path d="M80 18L82 24L88 26L82 28L80 34L78 28L72 26L78 24Z" fill="#FFFFFF"></path>
     </svg>
 
     <div class="y2k-layout">
       <aside class="y2k-col-left">
-        <div class="y2k-alert-box">
+        <div class="y2k-alert-box" data-seu-if="ui.showAlert">
           <div class="bar y2k-box-bar">
             <span data-seu-t="y2k.alertTitle">Aviso!</span>
             <span class="y2k-mini-x">x</span>
           </div>
           <div class="y2k-alert-body">
             <div><span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.sleepingTabsMsg">abas dormindo agora.</span></div>
-            <div><strong data-seu-bind="memory.savedText">0 MB devolvidos</strong> <span data-seu-t="y2k.backToPc">pro seu PC ♥</span></div>
+            <div><strong data-seu-bind="memory.savedText">0 MB devolvidos</strong> <span data-seu-t="y2k.backToPc">pro seu PC ⚡</span></div>
           </div>
           <div class="y2k-alert-foot">
-            <button type="button" class="y2k-retro-ok" data-seu-action="tabs.create">OK</button>
+            <button type="button" class="y2k-retro-ok" data-seu-action="ui.dismissAlert">OK</button>
           </div>
         </div>
 
@@ -103,7 +133,7 @@
 
         <div class="y2k-shortcuts" data-seu-container="shortcuts">
           <template data-seu-repeat="shortcuts">
-            <a class="y2k-cd-link" data-seu-href="$item.url">
+            <a class="y2k-cd-link" data-seu-href="$item.url" data-seu-action="tabs.navigate" data-seu-param="$item.url">
               <span class="cd y2k-cd-disc">
                 <span class="y2k-cd-hole" data-seu-bind="$item.code">YT</span>
               </span>
@@ -152,9 +182,9 @@
 
   <footer class="y2k-ticker">
     <span>★ <span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.tickerSleeping">ABAS DORMINDO</span></span>
-    <span>♥ <span data-seu-bind="blocker.totalBlocked">0</span> <span data-seu-t="y2k.tickerBlocked">RASTREADORES BARRADOS</span></span>
-    <span>★ <span data-seu-bind="memory.savedText">0 MB DEVOLVIDOS</span></span>
-    <span>♥ <span data-seu-t="y2k.tickerTheme">TEMA:</span> <span data-seu-bind="theme.nameUpper">Y2K MAXIMAL</span></span>
+    <span>⚡ <span data-seu-bind="blocker.totalBlocked">0</span> <span data-seu-t="y2k.tickerBlocked">RASTREADORES BARRADOS</span></span>
+    <span>✦ <span data-seu-bind="memory.savedText">0 MB DEVOLVIDOS</span></span>
+    <span>⚡ <span data-seu-t="y2k.tickerTheme">TEMA:</span> <span data-seu-bind="theme.nameUpper">Y2K MAXIMAL</span></span>
     <span>★ 0% BLOAT</span>
   </footer>
 </div>

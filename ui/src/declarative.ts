@@ -169,6 +169,13 @@ export class DeclarativeRuntime {
           ? String(resolvePath(item, rawParam.slice(6)) ?? "")
           : rawParam;
       el.addEventListener("click", (event) => {
+        if (el instanceof HTMLAnchorElement) {
+          const mouseEv = event as MouseEvent;
+          if (mouseEv.ctrlKey || mouseEv.metaKey || mouseEv.shiftKey || mouseEv.altKey) {
+            return;
+          }
+          event.preventDefault();
+        }
         event.stopPropagation();
         this.callbacks.onAction({
           action,
