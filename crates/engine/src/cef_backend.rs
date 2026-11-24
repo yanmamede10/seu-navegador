@@ -17,6 +17,7 @@ use cef::{
 };
 use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{BrowserCore, CoreSettings, TabId, WindowId, WindowSnapshot};
+use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{error, info, warn};
@@ -59,6 +60,7 @@ struct WindowViews {
 
 struct SharedState {
     core: BrowserCore,
+    themes: ThemeRegistry,
     host: Arc<dyn NativeWindowHost>,
     router: Arc<BrowserSideRouter>,
     windows: HashMap<WindowId, WindowViews>,
@@ -105,9 +107,12 @@ impl CefEngine {
         let router = BrowserSideRouter::new(MessageRouterConfig::default());
         let mut core = BrowserCore::new();
         core.settings = initial_settings;
+        let themes = ThemeRegistry::load_builtin()
+            .map_err(|e| EngineError::InitFailed(format!("failed to load builtin themes: {e}")))?;
 
         let shared = Arc::new(Mutex::new(SharedState {
             core,
+            themes,
             host,
             router: router.clone(),
             windows: HashMap::new(),
@@ -495,7 +500,7 @@ fn push_js_event(browser: &Browser, value: &serde_json::Value) {
 }
 
 fn broadcast_window_state(state: &Arc<Mutex<SharedState>>, window_id: WindowId) {
-    let (snapshot, shell_browser) = {
+    let (snapshot, shell_browser, tab_browsers) = {
         let Ok(guard) = state.lock() else {
             return;
         };
@@ -503,14 +508,64 @@ fn broadcast_window_state(state: &Arc<Mutex<SharedState>>, window_id: WindowId) 
             return;
         };
         let shell = guard.windows.get(&window_id).and_then(|w| w.shell.clone());
-        (snap, shell)
+        let tabs: Vec<Browser> = snap
+            .tabs
+            .iter()
+            .filter_map(|t| guard.tab_browsers.get(&t.id).cloned())
+            .collect();
+        (snap, shell, tabs)
     };
 
+    let payload = serde_json::json!({ "type": "state", "snapshot": snapshot });
     if let Some(shell) = shell_browser {
-        push_js_event(
-            &shell,
-            &serde_json::json!({ "type": "state", "snapshot": snapshot }),
-        );
+        push_js_event(&shell, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
+fn broadcast_theme_all(state: &Arc<Mutex<SharedState>>) {
+    let (theme, chrome_views, tab_browsers) = {
+        let Ok(guard) = state.lock() else {
+            return;
+        };
+        let Some(active) = guard
+            .themes
+            .get(&guard.core.settings.active_theme_id)
+            .cloned()
+        else {
+            return;
+        };
+        let mut chrome = Vec::new();
+        for win in guard.windows.values() {
+            if let Some(s) = &win.shell {
+                chrome.push(s.clone());
+            }
+            if let Some(o) = &win.overlay {
+                chrome.push(o.clone());
+            }
+        }
+        let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+        (active, chrome, tabs)
+    };
+
+    let payload = serde_json::json!({ "type": "theme", "theme": theme });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
     }
 }
 
@@ -847,6 +902,7 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::CloseOverlay { window_id } => engine.hide_overlay(window_id),
             HostEffect::BroadcastState { window_id } => broadcast_window_state(state, window_id),
             HostEffect::BroadcastSettings => broadcast_settings_all(state),
+            HostEffect::BroadcastTheme => broadcast_theme_all(state),
         }
     }
 }
@@ -876,7 +932,8 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                 }
                 return true;
             };
-            handle_raw_request(&origin_url, request, &mut guard.core)
+            let SharedState { core, themes, .. } = &mut *guard;
+            handle_raw_request(&origin_url, request, core, themes)
         };
 
         match result {

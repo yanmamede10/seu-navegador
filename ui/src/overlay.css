@@ -6,9 +6,9 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: #0d1330;
-  color: #e6e9ff;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--seu-surface, #0B1240);
+  color: var(--seu-text, #E6E9FF);
+  font-family: var(--seu-font-body, "Segoe UI", system-ui, sans-serif);
   user-select: none;
   overflow: hidden;
 }
@@ -16,9 +16,9 @@ body {
 .overlay-card {
   width: 100vw;
   height: 100vh;
-  padding: 8px;
-  border: 1px solid #ff2e93;
-  background: #0d1330;
+  padding: 10px;
+  border: 2px solid var(--seu-accent, #FF2E93);
+  background: var(--seu-surface, #0B1240);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -27,7 +27,7 @@ body {
 .menu-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .menu-btn {
@@ -35,21 +35,22 @@ body {
   text-align: left;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid transparent;
-  background: #141d47;
-  color: #e6e9ff;
+  border: 2px solid var(--seu-border, #2A3680);
+  background: var(--seu-surface2, #0E1650);
+  color: var(--seu-text, #E6E9FF);
+  font-family: var(--seu-font-body, system-ui, sans-serif);
   font-size: 13px;
   cursor: pointer;
 }
 
 .menu-btn:hover {
-  border-color: #4fd8ff;
-  background: #1b2861;
+  border-color: var(--seu-accent, #FF2E93);
+  background: var(--seu-bg, #070B24);
 }
 
 .menu-sep {
-  height: 1px;
-  background: #24306e;
+  height: 2px;
+  background: var(--seu-border, #2A3680);
   margin: 4px 0;
 }
 
@@ -57,7 +58,7 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: #8f9bd9;
+  color: var(--seu-text-muted, #8F9BD9);
   padding: 2px 4px;
 }
 
@@ -70,16 +71,16 @@ body {
   flex: 1;
   padding: 6px 8px;
   border-radius: 6px;
-  border: 1px solid #2c3b82;
-  background: #090e24;
-  color: #c9d3ff;
+  border: 2px solid var(--seu-border, #2A3680);
+  background: var(--seu-bg, #070B24);
+  color: var(--seu-text, #E6E9FF);
   font-size: 12px;
   cursor: pointer;
 }
 
 .pill-btn.active {
-  border-color: #ff2e93;
-  background: #ff2e93;
-  color: #070b1a;
+  border-color: var(--seu-accent, #FF2E93);
+  background: var(--seu-accent, #FF2E93);
+  color: var(--seu-accent-text, #070B24);
   font-weight: 700;
 }

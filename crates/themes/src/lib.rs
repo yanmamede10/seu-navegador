@@ -1,11 +1,20 @@
-//! Theme manifest, semantic token contract, and package validation.
+//! Theme manifest, semantic token contract, HTML/CSS sanitization, and built-in
+//! theme package loader.
 //!
-//! Platform-agnostic (no CEF/Win32 dependencies) so the same manifest and
-//! tokens schema can be shared with Android in the future (SPEC §6.1, §12.1).
+//! Platform-agnostic (no CEF/Win32 dependencies) so the same manifest, tokens,
+//! and validation layer can be shared with Android via UniFFI (SPEC §6.1, §12.1).
 
+pub mod sanitize;
+
+use include_dir::{include_dir, Dir};
+use sanitize::{validate_and_rewrite_css, validate_and_sanitize_html};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
+
+pub const DEFAULT_THEME_ID: &str = "y2k-maximal";
+
+static BUILTIN_THEMES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../themes");
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ThemeError {
@@ -13,8 +22,14 @@ pub enum ThemeError {
     InvalidId(String),
     #[error("missing required field: {0}")]
     MissingField(&'static str),
+    #[error("missing theme file: {0}")]
+    MissingFile(String),
     #[error("invalid token value for '{0}'")]
     InvalidToken(String),
+    #[error("unsafe theme html: {0}")]
+    UnsafeHtml(String),
+    #[error("unsafe theme css: {0}")]
+    UnsafeCss(String),
     #[error("json parse error: {0}")]
     Json(String),
 }
@@ -87,6 +102,29 @@ pub struct ThemeTokens {
     pub custom: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemeSummary {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub author: String,
+    pub description: String,
+    pub builtin: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LoadedTheme {
+    pub manifest: ThemeManifest,
+    pub tokens: ThemeTokens,
+    pub tokens_css: String,
+    pub shell_html: Option<String>,
+    pub shell_css: String,
+    pub newtab_html: String,
+    pub newtab_css: String,
+    pub base_url: String,
+    pub builtin: bool,
+}
+
 pub fn validate_manifest(manifest: &ThemeManifest) -> Result<(), ThemeError> {
     if manifest.id.is_empty()
         || !manifest
@@ -104,6 +142,15 @@ pub fn validate_manifest(manifest: &ThemeManifest) -> Result<(), ThemeError> {
     }
     if manifest.entry.tokens.trim().is_empty() {
         return Err(ThemeError::MissingField("entry.tokens"));
+    }
+    if manifest.entry.shell_css.trim().is_empty() {
+        return Err(ThemeError::MissingField("entry.shell_css"));
+    }
+    if manifest.entry.newtab_html.trim().is_empty() {
+        return Err(ThemeError::MissingField("entry.newtab_html"));
+    }
+    if manifest.entry.newtab_css.trim().is_empty() {
+        return Err(ThemeError::MissingField("entry.newtab_css"));
     }
     Ok(())
 }
@@ -126,13 +173,29 @@ pub fn validate_tokens(tokens: &ThemeTokens) -> Result<(), ThemeError> {
 
     for (name, val) in required {
         let v = val.trim();
-        if v.is_empty() || v.contains("url(") || v.contains("@import") {
+        if v.is_empty()
+            || v.contains("url(")
+            || v.contains("@import")
+            || v.contains(';')
+            || v.contains('}')
+        {
             return Err(ThemeError::InvalidToken(name.to_string()));
         }
     }
 
     for (k, v) in &tokens.custom {
-        if v.contains("http://") || v.contains("https://") || v.contains("@import") {
+        if !k
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(ThemeError::InvalidToken(k.clone()));
+        }
+        if v.contains("http://")
+            || v.contains("https://")
+            || v.contains("@import")
+            || v.contains(';')
+            || v.contains('}')
+        {
             return Err(ThemeError::InvalidToken(k.clone()));
         }
     }
@@ -140,32 +203,188 @@ pub fn validate_tokens(tokens: &ThemeTokens) -> Result<(), ThemeError> {
     Ok(())
 }
 
+/// Generates `:root` CSS custom properties from validated semantic + custom tokens,
+/// plus automatic incognito overrides.
+pub fn tokens_to_css(tokens: &ThemeTokens) -> String {
+    let s = &tokens.semantic;
+    let mut css = String::with_capacity(512);
+    css.push_str(":root {\n");
+    let semantic_pairs = [
+        ("--seu-bg", &s.bg),
+        ("--seu-surface", &s.surface),
+        ("--seu-surface2", &s.surface2),
+        ("--seu-text", &s.text),
+        ("--seu-text-muted", &s.text_muted),
+        ("--seu-accent", &s.accent),
+        ("--seu-accent-text", &s.accent_text),
+        ("--seu-border", &s.border),
+        ("--seu-danger", &s.danger),
+        ("--seu-incognito-bg", &s.incognito_bg),
+        ("--seu-incognito-accent", &s.incognito_accent),
+        ("--seu-font-display", &s.font_display),
+        ("--seu-font-body", &s.font_body),
+        ("--seu-font-mono", &s.font_mono),
+        ("--seu-radius", &s.radius),
+        ("--seu-shadow", &s.shadow),
+    ];
+    for (var, val) in semantic_pairs {
+        css.push_str(&format!("  {var}: {val};\n"));
+    }
+    for (k, val) in &tokens.custom {
+        css.push_str(&format!("  --seu-custom-{k}: {val};\n"));
+    }
+    css.push_str("}\n[data-incognito=\"true\"] {\n");
+    css.push_str("  --seu-bg: var(--seu-incognito-bg);\n");
+    css.push_str("  --seu-accent: var(--seu-incognito-accent);\n");
+    css.push_str("}\n");
+    css
+}
+
+pub struct ThemeRegistry {
+    themes: BTreeMap<String, LoadedTheme>,
+}
+
+impl ThemeRegistry {
+    pub fn load_builtin() -> Result<Self, ThemeError> {
+        let mut themes = BTreeMap::new();
+        for dir in BUILTIN_THEMES_DIR.dirs() {
+            let loaded = load_embedded_theme_dir(dir)?;
+            themes.insert(loaded.manifest.id.clone(), loaded);
+        }
+        Ok(Self { themes })
+    }
+
+    pub fn list_summaries(&self) -> Vec<ThemeSummary> {
+        self.themes
+            .values()
+            .map(|t| ThemeSummary {
+                id: t.manifest.id.clone(),
+                name: t.manifest.name.clone(),
+                version: t.manifest.version.clone(),
+                author: t.manifest.author.clone(),
+                description: t.manifest.description.clone(),
+                builtin: t.builtin,
+            })
+            .collect()
+    }
+
+    pub fn get(&self, id: &str) -> Option<&LoadedTheme> {
+        self.themes
+            .get(id)
+            .or_else(|| self.themes.get(DEFAULT_THEME_ID))
+    }
+
+    pub fn exists(&self, id: &str) -> bool {
+        self.themes.contains_key(id)
+    }
+
+    /// Resolves a static asset inside an embedded theme package (e.g. `assets/fonts/...`).
+    pub fn resolve_builtin_asset(theme_id: &str, relative_path: &str) -> Option<&'static [u8]> {
+        if relative_path.contains("..")
+            || !theme_id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return None;
+        }
+        let full = format!("{theme_id}/{relative_path}");
+        BUILTIN_THEMES_DIR
+            .get_file(&full)
+            .map(|file| file.contents())
+    }
+}
+
+fn load_embedded_theme_dir(dir: &Dir<'_>) -> Result<LoadedTheme, ThemeError> {
+    let dir_name = dir
+        .path()
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    let read_str = |rel: &str| -> Result<String, ThemeError> {
+        let full_path = format!("{dir_name}/{rel}");
+        let file = BUILTIN_THEMES_DIR
+            .get_file(&full_path)
+            .ok_or_else(|| ThemeError::MissingFile(full_path))?;
+        file.contents_utf8()
+            .map(|s| s.to_string())
+            .ok_or_else(|| ThemeError::MissingFile(rel.to_string()))
+    };
+
+    let manifest_raw = read_str("manifest.json")?;
+    let manifest: ThemeManifest =
+        serde_json::from_str(&manifest_raw).map_err(|e| ThemeError::Json(e.to_string()))?;
+    validate_manifest(&manifest)?;
+
+    let tokens_raw = read_str(&manifest.entry.tokens)?;
+    let tokens: ThemeTokens =
+        serde_json::from_str(&tokens_raw).map_err(|e| ThemeError::Json(e.to_string()))?;
+    validate_tokens(&tokens)?;
+
+    let tokens_css = tokens_to_css(&tokens);
+
+    let shell_css_raw = read_str(&manifest.entry.shell_css)?;
+    let shell_css = validate_and_rewrite_css(&shell_css_raw, &manifest.id)?;
+
+    let shell_html = match &manifest.entry.shell_html {
+        Some(path) => Some(validate_and_sanitize_html(&read_str(path)?)?),
+        None => None,
+    };
+
+    let newtab_html_raw = read_str(&manifest.entry.newtab_html)?;
+    let newtab_html = validate_and_sanitize_html(&newtab_html_raw)?;
+
+    let newtab_css_raw = read_str(&manifest.entry.newtab_css)?;
+    let newtab_css = validate_and_rewrite_css(&newtab_css_raw, &manifest.id)?;
+
+    let base_url = format!("seu://theme/{}/", manifest.id);
+
+    Ok(LoadedTheme {
+        manifest,
+        tokens,
+        tokens_css,
+        shell_html,
+        shell_css,
+        newtab_html,
+        newtab_css,
+        base_url,
+        builtin: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn validates_manifest_and_blocks_external_css_in_tokens() {
-        let manifest = ThemeManifest {
-            id: "y2k-maximal".to_string(),
-            name: "Y2K Maximal".to_string(),
-            version: "1.0.0".to_string(),
-            author: "Yan".to_string(),
-            description: "Default theme".to_string(),
-            base: None,
-            entry: ThemeEntrypoints {
-                tokens: "tokens.json".to_string(),
-                shell_css: "shell.css".to_string(),
-                shell_html: Some("shell.html".to_string()),
-                newtab_html: "newtab.html".to_string(),
-                newtab_css: "newtab.css".to_string(),
-            },
-            sites: BTreeMap::new(),
-            permissions: ThemePermissions { site_scripts: true },
-            mobile: Some(MobileEntrypoints::default()),
-        };
-        assert!(validate_manifest(&manifest).is_ok());
+    fn loads_and_validates_builtin_y2k_maximal_theme() {
+        let registry = ThemeRegistry::load_builtin();
+        assert!(
+            registry.is_ok(),
+            "failed to load builtin themes: {registry:?}"
+        );
+        if let Ok(reg) = registry {
+            let y2k = reg.get(DEFAULT_THEME_ID);
+            assert!(y2k.is_some());
+            if let Some(theme) = y2k {
+                assert_eq!(theme.manifest.id, "y2k-maximal");
+                assert!(theme.shell_html.is_some());
+                assert!(theme.tokens_css.contains("--seu-accent: #FF2E93;"));
+                assert!(theme
+                    .newtab_css
+                    .contains("seu://theme/y2k-maximal/assets/fonts/"));
+            }
 
+            let font = ThemeRegistry::resolve_builtin_asset(
+                "y2k-maximal",
+                "assets/fonts/rubik-mono-one-400-latin.woff2",
+            );
+            assert!(font.map(|b| !b.is_empty()).unwrap_or(false));
+        }
+    }
+
+    #[test]
+    fn rejects_external_css_in_tokens() {
         let mut bad_tokens = ThemeTokens {
             semantic: SemanticTokens {
                 bg: "#070B24".into(),

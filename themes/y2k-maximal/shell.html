@@ -1,0 +1,67 @@
+<div class="y2k-shell" data-seu-root="shell">
+  <header class="y2k-bar y2k-titlebar">
+    <div class="y2k-drag" data-seu-drag-region>
+      <svg class="y2k-star" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 0C13 8 16 11 24 12C16 13 13 16 12 24C11 16 8 13 0 12C8 11 11 8 12 0Z" fill="#FFFFFF"></path>
+      </svg>
+      <span class="y2k-title-text">
+        <span>SEU_NAVEGADOR.exe — </span>
+        <span data-seu-bind="activeTab.title">nova aba</span>
+      </span>
+      <span class="y2k-incognito-tag" data-seu-if="window.incognito" data-seu-t="app.incognito">ANÔNIMO</span>
+    </div>
+    <div class="y2k-win-btns">
+      <button type="button" class="y2k-win-btn" data-seu-action="windows.minimize" data-seu-title-t="window.minimize" aria-label="Minimizar">_</button>
+      <button type="button" class="y2k-win-btn" data-seu-action="windows.maximize" data-seu-title-t="window.maximize" aria-label="Maximizar">□</button>
+      <button type="button" class="y2k-win-btn y2k-win-close" data-seu-action="windows.close" data-seu-title-t="window.close" aria-label="Fechar">X</button>
+    </div>
+  </header>
+
+  <div class="y2k-tabbar">
+    <div class="y2k-groups" data-seu-container="tabGroups">
+      <template data-seu-repeat="tabGroups">
+        <button type="button" class="y2k-group-chip" data-seu-action="tabGroups.toggleCollapse" data-seu-style-bg="$item.color">
+          <span data-seu-bind="$item.collapseGlyph">▾</span>
+          <span data-seu-bind="$item.title">Grupo</span>
+        </button>
+      </template>
+    </div>
+    <div class="y2k-tabs" data-seu-container="tabs">
+      <template data-seu-repeat="tabs">
+        <div class="y2k-tab" data-seu-action="tabs.activate" data-seu-context-action="tabs.pin" data-seu-middle-action="tabs.close">
+          <span class="y2k-tab-glyph" data-seu-bind="$item.glyph">★</span>
+          <span class="y2k-tab-title" data-seu-bind="$item.title">Início</span>
+          <span class="y2k-tab-zzz" data-seu-if="$item.isSleeping">zzz</span>
+          <button type="button" class="y2k-tab-close" data-seu-action="tabs.close" data-seu-title-t="tabs.close" aria-label="Fechar aba">×</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="y2k-newtab-btn" data-seu-action="tabs.create" data-seu-title-t="tabs.new" aria-label="Nova aba">+</button>
+  </div>
+
+  <div class="y2k-navbar">
+    <button type="button" class="y2k-nav-btn" data-seu-action="tabs.back" data-seu-disabled-unless="activeTab.can_go_back" data-seu-title-t="nav.back" aria-label="Voltar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+    </button>
+    <button type="button" class="y2k-nav-btn" data-seu-action="tabs.forward" data-seu-disabled-unless="activeTab.can_go_forward" data-seu-title-t="nav.forward" aria-label="Avançar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>
+    </button>
+    <button type="button" class="y2k-nav-btn" data-seu-action="tabs.reload" data-seu-title-t="nav.reload" aria-label="Recarregar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>
+    </button>
+
+    <form class="y2k-omnibox" data-seu-submit="omnibox">
+      <span class="y2k-prompt">&gt;_</span>
+      <input class="y2k-url-input" type="text" autocomplete="off" spellcheck="false" data-seu-input="omnibox" data-seu-placeholder-t="nav.omniboxPlaceholder" aria-label="Endereço" />
+    </form>
+
+    <span class="y2k-ram-pill" data-seu-bind="memory.badgeText">RAM ▮▮▯▯▯ -- MB</span>
+    <span class="y2k-blocker-pill">
+      <span>◆ </span>
+      <span data-seu-bind="blocker.totalBlocked">0</span>
+      <span> </span>
+      <span data-seu-t="y2k.blocked">bloqueados</span>
+    </span>
+    <button type="button" class="y2k-nav-btn y2k-menu-btn" data-seu-action="overlay.toggleMenu" data-seu-title-t="nav.menu" aria-label="Menu">≡</button>
+  </div>
+</div>

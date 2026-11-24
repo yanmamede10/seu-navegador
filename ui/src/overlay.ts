@@ -3,6 +3,7 @@ import {
   getWindowIdFromQuery,
   onBridgeEvent,
   type CoreSettings,
+  type LoadedTheme,
   type WindowSnapshot,
 } from "./bridge";
 import { getLocale, setLocale, t } from "./i18n";
@@ -16,6 +17,16 @@ let currentSettings: CoreSettings = {
   active_theme_id: "y2k-maximal",
   game_mode_enabled: false,
 };
+
+function applyThemeTokens(theme: LoadedTheme): void {
+  let styleEl = document.getElementById("seu-tokens-css") as HTMLStyleElement | null;
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = "seu-tokens-css";
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = theme.tokens_css;
+}
 
 function closeOverlay(): void {
   void callBridge("overlay.close", { window_id: windowId });
@@ -148,15 +159,23 @@ onBridgeEvent((event) => {
     currentSettings = event.settings;
     setLocale(event.settings.locale);
     renderMenu();
+  } else if (event.type === "theme") {
+    applyThemeTokens(event.theme);
   }
 });
 
 async function bootstrap(): Promise<void> {
   try {
-    const settings = await callBridge<CoreSettings>("settings.get");
+    const [settings, theme] = await Promise.all([
+      callBridge<CoreSettings>("settings.get").catch(() => undefined),
+      callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
+    ]);
     if (settings) {
       currentSettings = settings;
       setLocale(settings.locale);
+    }
+    if (theme) {
+      applyThemeTokens(theme);
     }
   } catch {
     // Keep defaults.

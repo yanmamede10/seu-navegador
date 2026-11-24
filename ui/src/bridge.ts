@@ -35,9 +35,36 @@ export interface CoreSettings {
   game_mode_enabled: boolean;
 }
 
+export interface ThemeSummary {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  builtin: boolean;
+}
+
+export interface LoadedTheme {
+  manifest: {
+    id: string;
+    name: string;
+    version: string;
+    author: string;
+    description: string;
+  };
+  tokens_css: string;
+  shell_html: string | null;
+  shell_css: string;
+  newtab_html: string;
+  newtab_css: string;
+  base_url: string;
+  builtin: boolean;
+}
+
 export type BridgeEvent =
   | { type: "state"; snapshot: WindowSnapshot }
   | { type: "settings"; settings: CoreSettings }
+  | { type: "theme"; theme: LoadedTheme }
   | { type: "overlay"; panel: string };
 
 declare global {
@@ -72,7 +99,6 @@ export function getWindowIdFromQuery(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
-// Local mock state so the UI can also be previewed directly via `npm run dev`.
 const mockSnapshot: WindowSnapshot = {
   id: 1,
   incognito: false,
@@ -83,7 +109,7 @@ const mockSnapshot: WindowSnapshot = {
       id: 1,
       window_id: 1,
       url: "seu://newtab/",
-      title: "Nova aba",
+      title: "Início",
       favicon: null,
       loading: false,
       can_go_back: false,
@@ -104,7 +130,7 @@ const mockSnapshot: WindowSnapshot = {
       can_go_forward: false,
       pinned: false,
       audible: false,
-      state: "background",
+      state: "sleeping",
       group_id: 1,
     },
   ],
@@ -142,12 +168,27 @@ export async function callBridge<T = unknown>(
     });
   }
 
-  // Fallback for Vite dev preview outside CEF.
   if (method === "windows.getSnapshot") {
     return structuredClone(mockSnapshot) as T;
   }
   if (method === "settings.get") {
     return structuredClone(mockSettings) as T;
+  }
+  if (method === "gameMode.toggle") {
+    mockSettings.game_mode_enabled = !mockSettings.game_mode_enabled;
+    return structuredClone(mockSettings) as T;
+  }
+  if (method === "themes.list") {
+    return [
+      {
+        id: "y2k-maximal",
+        name: "Y2K Maximal",
+        version: "1.0.0",
+        author: "Yan Mamede",
+        description: "Default theme",
+        builtin: true,
+      },
+    ] as T;
   }
   if (method === "settings.setLocale" && params?.locale) {
     mockSettings.locale = String(params.locale).toLowerCase().startsWith("en")

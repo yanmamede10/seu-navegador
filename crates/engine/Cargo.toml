@@ -9,6 +9,7 @@ include_dir.workspace = true
 serde_json.workspace = true
 seu-bridge = { path = "../bridge" }
 seu-core = { path = "../core" }
+seu-themes = { path = "../themes" }
 thiserror.workspace = true
 tracing.workspace = true
 

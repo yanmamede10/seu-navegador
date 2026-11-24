@@ -5,9 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 use seu_core::{
-    BrowserCore, CoreError, CoreSettings, GroupId, Locale, SearchEngine, TabId, WindowId,
-    WindowSnapshot,
+    BrowserCore, CoreError, CoreSettings, GroupId, Locale, SearchCategory, SearchEngine, TabId,
+    WindowId, WindowSnapshot,
 };
+use seu_themes::{LoadedTheme, ThemeRegistry, ThemeSummary};
 use thiserror::Error;
 
 pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 256 * 1024;
@@ -127,6 +128,24 @@ pub enum BridgeRequest {
     SettingsSetLocale { locale: String },
     #[serde(rename = "settings.setSearchEngine")]
     SettingsSetSearchEngine { engine: SearchEngine },
+
+    #[serde(rename = "search.submit")]
+    SearchSubmit {
+        tab_id: TabId,
+        query: String,
+        #[serde(default)]
+        category: SearchCategory,
+    },
+
+    #[serde(rename = "gameMode.toggle")]
+    GameModeToggle,
+
+    #[serde(rename = "themes.list")]
+    ThemesList,
+    #[serde(rename = "themes.getActive")]
+    ThemesGetActive,
+    #[serde(rename = "themes.setActive")]
+    ThemesSetActive { id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -141,6 +160,8 @@ pub enum BridgeResponse {
     GroupCreated { group_id: GroupId },
     GroupCollapsed { group_id: GroupId, collapsed: bool },
     Settings(CoreSettings),
+    ThemesList(Vec<ThemeSummary>),
+    ThemeActive(Box<LoadedTheme>),
 }
 
 /// Side-effect commands that the engine/window layer must execute after
@@ -210,6 +231,7 @@ pub enum HostEffect {
         window_id: WindowId,
     },
     BroadcastSettings,
+    BroadcastTheme,
 }
 
 pub struct DispatchOutput {
@@ -223,6 +245,7 @@ pub fn handle_raw_request(
     origin_url: &str,
     raw_json: &str,
     core: &mut BrowserCore,
+    themes: &ThemeRegistry,
 ) -> Result<DispatchOutput, BridgeError> {
     if !is_privileged_origin(origin_url) {
         return Err(BridgeError::OriginDenied);
@@ -233,12 +256,13 @@ pub fn handle_raw_request(
 
     let req: BridgeRequest =
         serde_json::from_str(raw_json).map_err(|e| BridgeError::InvalidJson(e.to_string()))?;
-    dispatch_request(req, core)
+    dispatch_request(req, core, themes)
 }
 
 pub fn dispatch_request(
     req: BridgeRequest,
     core: &mut BrowserCore,
+    themes: &ThemeRegistry,
 ) -> Result<DispatchOutput, BridgeError> {
     match req {
         BridgeRequest::WindowGetSnapshot { window_id } => {
@@ -597,6 +621,69 @@ pub fn dispatch_request(
                 effects: vec![HostEffect::BroadcastSettings],
             })
         }
+        BridgeRequest::SearchSubmit {
+            tab_id,
+            query,
+            category,
+        } => {
+            let url = core.navigate_tab_category_search(tab_id, &query, category)?;
+            let window_id = core
+                .get_tab(tab_id)
+                .map(|t| t.window_id)
+                .ok_or(CoreError::TabNotFound(tab_id))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::TabNavigated {
+                    tab_id,
+                    url: url.clone(),
+                },
+                effects: vec![
+                    HostEffect::NavigateTabView { tab_id, url },
+                    HostEffect::BroadcastState { window_id },
+                ],
+            })
+        }
+        BridgeRequest::GameModeToggle => {
+            core.toggle_game_mode();
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::ThemesList => Ok(DispatchOutput {
+            response: BridgeResponse::ThemesList(themes.list_summaries()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::ThemesGetActive => {
+            let active = themes
+                .get(&core.settings.active_theme_id)
+                .cloned()
+                .ok_or_else(|| {
+                    BridgeError::InvalidArgument(format!(
+                        "theme not found: {}",
+                        core.settings.active_theme_id
+                    ))
+                })?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeActive(Box::new(active)),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::ThemesSetActive { id } => {
+            if !themes.exists(&id) {
+                return Err(BridgeError::InvalidArgument(format!(
+                    "unknown theme id: {id}"
+                )));
+            }
+            core.settings.active_theme_id = id.clone();
+            let active = themes
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| BridgeError::InvalidArgument(format!("unknown theme id: {id}")))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeActive(Box::new(active)),
+                effects: vec![HostEffect::BroadcastTheme, HostEffect::BroadcastSettings],
+            })
+        }
     }
 }
 
@@ -604,13 +691,22 @@ pub fn dispatch_request(
 mod tests {
     use super::*;
 
+    fn test_registry() -> ThemeRegistry {
+        ThemeRegistry::load_builtin().unwrap_or_else(|_| {
+            // Unreachable when builtin y2k-maximal exists; keeps tests unwrap-free.
+            panic!("builtin theme registry failed to load")
+        })
+    }
+
     #[test]
     fn denies_non_seu_origins() {
         let mut core = BrowserCore::new();
+        let themes = test_registry();
         let err = handle_raw_request(
             "https://evil.example/",
             r#"{"method":"settings.get"}"#,
             &mut core,
+            &themes,
         )
         .err();
         assert_eq!(err, Some(BridgeError::OriginDenied));
@@ -619,12 +715,13 @@ mod tests {
     #[test]
     fn allows_seu_origin_and_dispatches_requests() {
         let mut core = BrowserCore::new();
+        let themes = test_registry();
         let (win_id, _) = core.create_window(false, None);
 
         let payload = format!(
             r#"{{"method":"tabs.create","params":{{"window_id":{win_id},"url":"docs.rs"}}}}"#
         );
-        let out = handle_raw_request("seu://shell/", &payload, &mut core);
+        let out = handle_raw_request("seu://shell/", &payload, &mut core, &themes);
         assert!(out.is_ok());
         if let Ok(output) = out {
             assert!(matches!(
@@ -633,20 +730,33 @@ mod tests {
             ));
             assert!(!output.effects.is_empty());
         }
+
+        let theme_out = handle_raw_request(
+            "seu://shell/",
+            r#"{"method":"themes.getActive"}"#,
+            &mut core,
+            &themes,
+        );
+        assert!(matches!(
+            theme_out.map(|o| o.response),
+            Ok(BridgeResponse::ThemeActive(ref t)) if t.manifest.id == "y2k-maximal"
+        ));
     }
 
     #[test]
     fn rejects_invalid_json_and_invalid_locale() {
         let mut core = BrowserCore::new();
+        let themes = test_registry();
         assert!(matches!(
-            handle_raw_request("seu://shell/", "{not-json", &mut core),
+            handle_raw_request("seu://shell/", "{not-json", &mut core, &themes),
             Err(BridgeError::InvalidJson(_))
         ));
         assert!(matches!(
             handle_raw_request(
                 "seu://shell/",
                 r#"{"method":"settings.setLocale","params":{"locale":"xx-YY"}}"#,
-                &mut core
+                &mut core,
+                &themes
             ),
             Err(BridgeError::InvalidArgument(_))
         ));

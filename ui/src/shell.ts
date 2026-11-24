@@ -3,244 +3,116 @@ import {
   getWindowIdFromQuery,
   onBridgeEvent,
   type CoreSettings,
+  type LoadedTheme,
   type WindowSnapshot,
 } from "./bridge";
-import { setLocale, t } from "./i18n";
+import { DeclarativeRuntime, type RepeatItem } from "./declarative";
+import { setLocale } from "./i18n";
 
 const windowId = getWindowIdFromQuery();
+const mountEl = document.getElementById("theme-mount") as HTMLDivElement;
+
 let currentSnapshot: WindowSnapshot | null = null;
-let draggedTabId: number | null = null;
+let currentTheme: LoadedTheme | null = null;
 let overlayOpen = false;
 
-const shellRoot = document.getElementById("shell-root") as HTMLDivElement;
-const dragRegion = document.getElementById("drag-region") as HTMLDivElement;
-const brandTitle = document.getElementById("brand-title") as HTMLSpanElement;
-const incognitoPill = document.getElementById("incognito-pill") as HTMLSpanElement;
-const tabsList = document.getElementById("tabs-list") as HTMLDivElement;
-const btnMin = document.getElementById("btn-min") as HTMLButtonElement;
-const btnMax = document.getElementById("btn-max") as HTMLButtonElement;
-const btnClose = document.getElementById("btn-close") as HTMLButtonElement;
-const btnNewTab = document.getElementById("btn-new-tab") as HTMLButtonElement;
-const btnBack = document.getElementById("btn-back") as HTMLButtonElement;
-const btnForward = document.getElementById("btn-forward") as HTMLButtonElement;
-const btnReload = document.getElementById("btn-reload") as HTMLButtonElement;
-const btnMenu = document.getElementById("btn-menu") as HTMLButtonElement;
-const omniboxForm = document.getElementById("omnibox-form") as HTMLFormElement;
-const omniboxInput = document.getElementById("omnibox-input") as HTMLInputElement;
-const omniboxLock = document.getElementById("omnibox-lock") as HTMLSpanElement;
-const badgeRam = document.getElementById("badge-ram") as HTMLSpanElement;
-const badgeBlocker = document.getElementById("badge-blocker") as HTMLSpanElement;
-
-function applyLocalizedLabels(): void {
-  brandTitle.textContent = t("app.name");
-  incognitoPill.textContent = t("app.incognito");
-  btnMin.title = t("window.minimize");
-  btnMax.title = t("window.maximize");
-  btnClose.title = t("window.close");
-  btnNewTab.title = t("tabs.new");
-  btnBack.title = t("nav.back");
-  btnForward.title = t("nav.forward");
-  btnReload.title = t("nav.reload");
-  btnMenu.title = t("nav.menu");
-  omniboxInput.placeholder = t("nav.omniboxPlaceholder");
-  badgeRam.textContent = `${t("badge.ram")} -- MB`;
-  badgeBlocker.textContent = `${t("badge.blocker")} 0`;
-}
-
-function renderSnapshot(snap: WindowSnapshot): void {
-  currentSnapshot = snap;
-  shellRoot.classList.toggle("incognito", snap.incognito);
-  incognitoPill.hidden = !snap.incognito;
-
-  tabsList.innerHTML = "";
-  const renderedGroups = new Set<number>();
-
-  snap.tabs.forEach((tab, index) => {
-    const group =
-      tab.group_id !== null
-        ? snap.groups.find((g) => g.id === tab.group_id) ?? null
-        : null;
-
-    if (group && !renderedGroups.has(group.id)) {
-      renderedGroups.add(group.id);
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "group-chip";
-      chip.style.background = group.color;
-      chip.textContent = `${group.collapsed ? "▸" : "▾"} ${group.title}`;
-      chip.addEventListener("click", () => {
-        void callBridge("tabGroups.toggleCollapse", {
-          window_id: windowId,
-          group_id: group.id,
-        });
-      });
-      tabsList.appendChild(chip);
-    }
-
-    if (group && group.collapsed && tab.id !== snap.active_tab_id) {
-      return;
-    }
-
-    const tabEl = document.createElement("div");
-    tabEl.className = "tab-item";
-    tabEl.draggable = true;
-    tabEl.dataset.tabId = String(tab.id);
-    if (tab.id === snap.active_tab_id) {
-      tabEl.classList.add("active");
-    }
-    if (tab.pinned) {
-      tabEl.classList.add("pinned");
-    }
-    if (group) {
-      tabEl.style.borderTop = `2px solid ${group.color}`;
-    }
-
-    const titleEl = document.createElement("span");
-    titleEl.className = "tab-title";
-    titleEl.textContent = tab.loading ? `… ${tab.title}` : tab.title;
-    tabEl.appendChild(titleEl);
-
-    if (!tab.pinned) {
-      const closeBtn = document.createElement("button");
-      closeBtn.type = "button";
-      closeBtn.className = "tab-close";
-      closeBtn.title = t("tabs.close");
-      closeBtn.textContent = "×";
-      closeBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        void callBridge("tabs.close", { tab_id: tab.id });
-      });
-      tabEl.appendChild(closeBtn);
-    }
-
-    tabEl.addEventListener("click", () => {
-      void callBridge("tabs.activate", { window_id: windowId, tab_id: tab.id });
-    });
-
-    tabEl.addEventListener("auxclick", (ev) => {
-      if (ev.button === 1) {
-        ev.preventDefault();
-        void callBridge("tabs.close", { tab_id: tab.id });
-      }
-    });
-
-    tabEl.addEventListener("contextmenu", (ev) => {
-      ev.preventDefault();
-      void callBridge("tabs.pin", { tab_id: tab.id });
-    });
-
-    tabEl.addEventListener("dragstart", (ev) => {
-      draggedTabId = tab.id;
-      ev.dataTransfer?.setData("text/plain", String(tab.id));
-    });
-
-    tabEl.addEventListener("dragover", (ev) => {
-      ev.preventDefault();
-      tabEl.classList.add("drag-over");
-    });
-
-    tabEl.addEventListener("dragleave", () => {
-      tabEl.classList.remove("drag-over");
-    });
-
-    tabEl.addEventListener("drop", (ev) => {
-      ev.preventDefault();
-      tabEl.classList.remove("drag-over");
-      if (draggedTabId !== null && draggedTabId !== tab.id) {
-        void callBridge("tabs.reorder", {
-          window_id: windowId,
-          tab_id: draggedTabId,
-          to_index: index,
-        });
-      }
-      draggedTabId = null;
-    });
-
-    tabsList.appendChild(tabEl);
-  });
-
-  const activeTab = snap.tabs.find((tab) => tab.id === snap.active_tab_id);
-  btnBack.disabled = !activeTab?.can_go_back;
-  btnForward.disabled = !activeTab?.can_go_forward;
-
-  if (activeTab && document.activeElement !== omniboxInput) {
-    omniboxInput.value =
-      activeTab.url === "seu://newtab/" ? "" : activeTab.url;
-  }
-
-  if (activeTab?.url.startsWith("https://")) {
-    omniboxLock.textContent = "🔒";
-  } else if (activeTab?.url.startsWith("seu://")) {
-    omniboxLock.textContent = "★";
-  } else {
-    omniboxLock.textContent = "●";
-  }
-}
-
-dragRegion.addEventListener("mousedown", (ev) => {
-  if (ev.button === 0 && ev.detail === 1) {
+const runtime = new DeclarativeRuntime(mountEl, {
+  onStartDragWindow: () => {
     void callBridge("windows.startDrag", { window_id: windowId });
-  }
+  },
+  onMaximizeWindow: () => {
+    void callBridge("windows.maximize", { window_id: windowId });
+  },
+  onSubmit: (name, value) => {
+    if (name === "omnibox" && currentSnapshot?.active_tab_id) {
+      void callBridge("tabs.navigate", {
+        tab_id: currentSnapshot.active_tab_id,
+        input: value,
+      });
+    }
+  },
+  onReorder: (collection, draggedId, toIndex) => {
+    if (collection === "tabs") {
+      void callBridge("tabs.reorder", {
+        window_id: windowId,
+        tab_id: Number(draggedId),
+        to_index: toIndex,
+      });
+    }
+  },
+  onAction: ({ action, item }) => {
+    const activeTabId = currentSnapshot?.active_tab_id;
+    switch (action) {
+      case "windows.minimize":
+        void callBridge("windows.minimize", { window_id: windowId });
+        break;
+      case "windows.maximize":
+        void callBridge("windows.maximize", { window_id: windowId });
+        break;
+      case "windows.close":
+        void callBridge("windows.close", { window_id: windowId });
+        break;
+      case "tabs.create":
+        void callBridge("tabs.create", { window_id: windowId, activate: true });
+        break;
+      case "tabs.activate":
+        if (item?.id !== undefined) {
+          void callBridge("tabs.activate", {
+            window_id: windowId,
+            tab_id: Number(item.id),
+          });
+        }
+        break;
+      case "tabs.close":
+        if (item?.id !== undefined) {
+          void callBridge("tabs.close", { tab_id: Number(item.id) });
+        }
+        break;
+      case "tabs.pin":
+        if (item?.id !== undefined) {
+          void callBridge("tabs.pin", { tab_id: Number(item.id) });
+        }
+        break;
+      case "tabs.back":
+        if (activeTabId) {
+          void callBridge("tabs.back", { tab_id: activeTabId });
+        }
+        break;
+      case "tabs.forward":
+        if (activeTabId) {
+          void callBridge("tabs.forward", { tab_id: activeTabId });
+        }
+        break;
+      case "tabs.reload":
+        if (activeTabId) {
+          void callBridge("tabs.reload", { tab_id: activeTabId });
+        }
+        break;
+      case "tabGroups.toggleCollapse":
+        if (item?.id !== undefined) {
+          void callBridge("tabGroups.toggleCollapse", {
+            window_id: windowId,
+            group_id: Number(item.id),
+          });
+        }
+        break;
+      case "overlay.toggleMenu":
+        toggleMenuOverlay();
+        break;
+    }
+  },
 });
 
-dragRegion.addEventListener("dblclick", () => {
-  void callBridge("windows.maximize", { window_id: windowId });
-});
-
-btnMin.addEventListener("click", () => {
-  void callBridge("windows.minimize", { window_id: windowId });
-});
-
-btnMax.addEventListener("click", () => {
-  void callBridge("windows.maximize", { window_id: windowId });
-});
-
-btnClose.addEventListener("click", () => {
-  void callBridge("windows.close", { window_id: windowId });
-});
-
-btnNewTab.addEventListener("click", () => {
-  void callBridge("tabs.create", { window_id: windowId, activate: true });
-});
-
-btnBack.addEventListener("click", () => {
-  if (currentSnapshot?.active_tab_id) {
-    void callBridge("tabs.back", { tab_id: currentSnapshot.active_tab_id });
-  }
-});
-
-btnForward.addEventListener("click", () => {
-  if (currentSnapshot?.active_tab_id) {
-    void callBridge("tabs.forward", { tab_id: currentSnapshot.active_tab_id });
-  }
-});
-
-btnReload.addEventListener("click", () => {
-  if (currentSnapshot?.active_tab_id) {
-    void callBridge("tabs.reload", { tab_id: currentSnapshot.active_tab_id });
-  }
-});
-
-omniboxForm.addEventListener("submit", (ev) => {
-  ev.preventDefault();
-  if (!currentSnapshot?.active_tab_id) return;
-  void callBridge("tabs.navigate", {
-    tab_id: currentSnapshot.active_tab_id,
-    input: omniboxInput.value,
-  });
-  omniboxInput.blur();
-});
-
-btnMenu.addEventListener("click", () => {
+function toggleMenuOverlay(): void {
   if (overlayOpen) {
     overlayOpen = false;
     void callBridge("overlay.close", { window_id: windowId });
     return;
   }
   const dpr = window.devicePixelRatio || 1;
-  const rect = shellRoot.getBoundingClientRect();
-  const widthCss = 270;
-  const heightCss = 320;
+  const rect = mountEl.getBoundingClientRect();
+  const widthCss = 276;
+  const heightCss = 330;
   const xCss = Math.max(8, window.innerWidth - widthCss - 10);
   const yCss = rect.height + 4;
   overlayOpen = true;
@@ -252,12 +124,11 @@ btnMenu.addEventListener("click", () => {
     width: Math.round(widthCss * dpr),
     height: Math.round(heightCss * dpr),
   });
-});
+}
 
-// Report dynamic shell height (in physical pixels for Win32 SetWindowPos).
 function reportShellHeight(): void {
   const dpr = window.devicePixelRatio || 1;
-  const cssHeight = shellRoot.getBoundingClientRect().height || shellRoot.offsetHeight;
+  const cssHeight = mountEl.getBoundingClientRect().height || mountEl.offsetHeight;
   const physicalHeight = Math.ceil(cssHeight * dpr);
   if (physicalHeight > 0) {
     void callBridge("windows.setShellBounds", {
@@ -270,45 +141,135 @@ function reportShellHeight(): void {
 const resizeObserver = new ResizeObserver(() => {
   reportShellHeight();
 });
-resizeObserver.observe(shellRoot);
+resizeObserver.observe(mountEl);
+
+function renderAll(): void {
+  if (!currentSnapshot || !currentTheme) return;
+
+  document.documentElement.dataset.incognito = currentSnapshot.incognito ? "true" : "false";
+
+  const activeTab =
+    currentSnapshot.tabs.find((tab) => tab.id === currentSnapshot?.active_tab_id) ?? null;
+
+  const groupMap = new Map(currentSnapshot.groups.map((g) => [g.id, g]));
+
+  const tabItems: RepeatItem[] = [];
+  for (const tab of currentSnapshot.tabs) {
+    const grp = tab.group_id !== null ? groupMap.get(tab.group_id) : undefined;
+    if (grp && grp.collapsed && tab.id !== currentSnapshot.active_tab_id) {
+      continue;
+    }
+
+    const states: string[] = [];
+    if (tab.id === currentSnapshot.active_tab_id) states.push("active");
+    if (tab.state === "sleeping") states.push("sleeping");
+    if (tab.pinned) states.push("pinned");
+    if (tab.audible) states.push("playing");
+
+    const glyph = tab.audible
+      ? "♪"
+      : tab.pinned
+        ? "◆"
+        : tab.id === currentSnapshot.active_tab_id
+          ? "★"
+          : "•";
+
+    tabItems.push({
+      id: tab.id,
+      title: tab.loading ? `… ${tab.title}` : tab.title,
+      glyph,
+      isSleeping: tab.state === "sleeping",
+      state: states.join(" "),
+    });
+  }
+
+  const groupItems: RepeatItem[] = currentSnapshot.groups.map((g) => ({
+    id: g.id,
+    title: g.title,
+    color: g.color,
+    collapseGlyph: g.collapsed ? "▸" : "▾",
+    state: g.collapsed ? "collapsed" : "expanded",
+  }));
+
+  runtime.render(
+    {
+      window: {
+        id: currentSnapshot.id,
+        incognito: currentSnapshot.incognito,
+      },
+      activeTab: {
+        title: activeTab?.title ?? "nova aba",
+        url: activeTab?.url ?? "seu://newtab/",
+        can_go_back: activeTab?.can_go_back ?? false,
+        can_go_forward: activeTab?.can_go_forward ?? false,
+      },
+      memory: {
+        badgeText: "RAM ▮▮▯▯▯ -- MB",
+      },
+      blocker: {
+        totalBlocked: 0,
+      },
+    },
+    {
+      tabs: tabItems,
+      tabGroups: groupItems,
+    },
+  );
+
+  if (activeTab) {
+    runtime.setInputValue(
+      "omnibox",
+      activeTab.url === "seu://newtab/" ? "" : activeTab.url,
+    );
+  }
+
+  requestAnimationFrame(() => reportShellHeight());
+}
+
+function mountTheme(theme: LoadedTheme): void {
+  currentTheme = theme;
+  runtime.applyStyles(theme.tokens_css, theme.shell_css);
+  if (theme.shell_html) {
+    runtime.mount(theme.shell_html);
+  }
+  renderAll();
+}
 
 onBridgeEvent((event) => {
   if (event.type === "state") {
-    renderSnapshot(event.snapshot);
+    currentSnapshot = event.snapshot;
+    renderAll();
   } else if (event.type === "settings") {
     setLocale(event.settings.locale);
-    applyLocalizedLabels();
-    if (currentSnapshot) {
-      renderSnapshot(currentSnapshot);
-    }
+    renderAll();
+  } else if (event.type === "theme") {
+    mountTheme(event.theme);
   } else if (event.type === "overlay" && event.panel === "closed") {
     overlayOpen = false;
   }
 });
 
 async function bootstrap(): Promise<void> {
-  applyLocalizedLabels();
-  reportShellHeight();
   try {
-    const settings = await callBridge<CoreSettings>("settings.get");
+    const [settings, theme, snap] = await Promise.all([
+      callBridge<CoreSettings>("settings.get").catch(() => undefined),
+      callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
+      callBridge<WindowSnapshot>("windows.getSnapshot", {
+        window_id: windowId,
+      }).catch(() => undefined),
+    ]);
+
     if (settings?.locale) {
       setLocale(settings.locale);
-      applyLocalizedLabels();
     }
-  } catch {
-    // Keep default locale if unavailable during preview.
-  }
-
-  try {
-    const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
-      window_id: windowId,
-    });
     if (snap) {
-      renderSnapshot(snap);
-      reportShellHeight();
+      currentSnapshot = snap;
+    }
+    if (theme) {
+      mountTheme(theme);
     }
   } catch {
-    // Initial state will arrive via push event.
+    // Wait for pushed events.
   }
 }
 

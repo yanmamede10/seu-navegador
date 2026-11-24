@@ -63,6 +63,17 @@ pub enum SearchEngine {
     Startpage,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchCategory {
+    #[default]
+    Web,
+    Videos,
+    Images,
+    Code,
+    Docs,
+}
+
 impl SearchEngine {
     pub fn search_url(self, query: &str) -> String {
         let encoded = percent_encode_query(query);
@@ -71,6 +82,26 @@ impl SearchEngine {
             Self::Google => format!("https://www.google.com/search?q={encoded}"),
             Self::Brave => format!("https://search.brave.com/search?q={encoded}"),
             Self::Startpage => format!("https://www.startpage.com/do/search?q={encoded}"),
+        }
+    }
+
+    pub fn category_search_url(self, query: &str, category: SearchCategory) -> String {
+        let trimmed = query.trim();
+        if matches!(category, SearchCategory::Web) {
+            return resolve_omnibox_input(trimmed, self);
+        }
+        let encoded = percent_encode_query(trimmed);
+        match category {
+            SearchCategory::Web => resolve_omnibox_input(trimmed, self),
+            SearchCategory::Videos => {
+                format!("https://www.youtube.com/results?search_query={encoded}")
+            }
+            SearchCategory::Images => match self {
+                Self::Google => format!("https://www.google.com/search?tbm=isch&q={encoded}"),
+                _ => format!("https://duckduckgo.com/?q={encoded}&iax=images&ia=images"),
+            },
+            SearchCategory::Code => format!("https://github.com/search?q={encoded}"),
+            SearchCategory::Docs => format!("https://docs.rs/releases/search?query={encoded}"),
         }
     }
 }
@@ -559,6 +590,29 @@ impl BrowserCore {
             .ok_or(CoreError::TabNotFound(tab_id))?;
         tab.url = resolved.clone();
         Ok(resolved)
+    }
+
+    pub fn navigate_tab_category_search(
+        &mut self,
+        tab_id: TabId,
+        query: &str,
+        category: SearchCategory,
+    ) -> Result<String, CoreError> {
+        let resolved = self
+            .settings
+            .search_engine
+            .category_search_url(query, category);
+        let tab = self
+            .tabs
+            .get_mut(&tab_id)
+            .ok_or(CoreError::TabNotFound(tab_id))?;
+        tab.url = resolved.clone();
+        Ok(resolved)
+    }
+
+    pub fn toggle_game_mode(&mut self) -> bool {
+        self.settings.game_mode_enabled = !self.settings.game_mode_enabled;
+        self.settings.game_mode_enabled
     }
 
     pub fn create_tab_group(

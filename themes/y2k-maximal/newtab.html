@@ -1,0 +1,160 @@
+<div class="y2k-page gridbg">
+  <div class="y2k-stage">
+    <div class="y2k-left-ribbon" aria-hidden="true">
+      <span>SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR</span>
+    </div>
+    <div class="y2k-right-checker checker" aria-hidden="true"></div>
+
+    <svg class="y2k-chrome-ribbon" viewBox="0 0 1440 260" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="y2k-rib" x1="0" x2="1">
+          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"></stop>
+          <stop offset=".35" stop-color="#DDE3FF" stop-opacity=".7"></stop>
+          <stop offset=".6" stop-color="#7083E8" stop-opacity=".5"></stop>
+          <stop offset=".8" stop-color="#FFB3D9" stop-opacity=".7"></stop>
+          <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"></stop>
+        </linearGradient>
+      </defs>
+      <path d="M-40 220C260 40 520 260 760 120S1180 -10 1480 90" fill="none" stroke="url(#y2k-rib)" stroke-width="30" stroke-linecap="round"></path>
+      <path d="M-40 236C280 70 540 280 780 146S1200 20 1480 116" fill="none" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="3"></path>
+    </svg>
+
+    <svg class="y2k-globe" viewBox="0 0 100 100" fill="none" stroke="#4FD8FF" stroke-width="1.4" aria-hidden="true">
+      <circle cx="50" cy="50" r="46"></circle>
+      <ellipse cx="50" cy="50" rx="20" ry="46"></ellipse>
+      <ellipse cx="50" cy="50" rx="36" ry="46"></ellipse>
+      <path d="M4 50h92M10 28h80M10 72h80"></path>
+    </svg>
+    <svg class="y2k-starburst" viewBox="0 0 100 100" aria-hidden="true">
+      <polygon points="50,0 58,30 88,12 70,40 100,50 70,60 88,88 58,70 50,100 42,70 12,88 30,60 0,50 30,40 12,12 42,30" fill="#B6FF3B"></polygon>
+    </svg>
+    <svg class="y2k-heart-pink" viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true">
+      <path d="M1 0h2v1h1V0h2v1h1v2h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1H0V1h1z" fill="#FF2E93"></path>
+    </svg>
+    <svg class="y2k-heart-lime" viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true">
+      <path d="M1 0h2v1h1V0h2v1h1v2h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1H0V1h1z" fill="#B6FF3B"></path>
+    </svg>
+
+    <div class="y2k-layout">
+      <aside class="y2k-col-left">
+        <div class="y2k-alert-box">
+          <div class="bar y2k-box-bar">
+            <span data-seu-t="y2k.alertTitle">Aviso!</span>
+            <span class="y2k-mini-x">x</span>
+          </div>
+          <div class="y2k-alert-body">
+            <div><span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.sleepingTabsMsg">abas dormindo agora.</span></div>
+            <div><strong data-seu-bind="memory.savedText">0 MB devolvidos</strong> <span data-seu-t="y2k.backToPc">pro seu PC ♥</span></div>
+          </div>
+          <div class="y2k-alert-foot">
+            <button type="button" class="y2k-retro-ok" data-seu-action="tabs.create">OK</button>
+          </div>
+        </div>
+
+        <div class="y2k-player">
+          <div class="y2k-player-head">
+            <span data-seu-t="y2k.nowPlaying">♪ TOCANDO AGORA</span>
+            <span data-seu-bind="media.source">silêncio</span>
+          </div>
+          <div class="y2k-player-lcd" data-seu-bind="media.title">nenhuma mídia em reprodução</div>
+          <div class="y2k-player-bar"><div class="y2k-player-fill"></div></div>
+          <div class="y2k-player-controls">
+            <button type="button" class="y2k-media-btn" data-seu-action="media.prev" aria-label="Anterior">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"></path></svg>
+            </button>
+            <button type="button" class="y2k-media-btn y2k-media-play" data-seu-action="media.playPause" aria-label="Pausar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
+            </button>
+            <button type="button" class="y2k-media-btn" data-seu-action="media.next" aria-label="Próximo">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"></path></svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="y2k-col-main">
+        <div class="y2k-hero-wrap">
+          <span class="y2k-badge-seu">SEU</span>
+          <h1 class="chrome y2k-hero-title">NAVEGADOR</h1>
+          <span class="y2k-sticker-way">100%<br />SEU<br />JEITO</span>
+        </div>
+
+        <div class="y2k-search-win">
+          <div class="bar y2k-box-bar">
+            <span>buscar.exe</span>
+            <span class="y2k-box-dots"><span class="y2k-mini-x">?</span><span class="y2k-mini-x">x</span></span>
+          </div>
+          <form class="holo y2k-search-holo" data-seu-submit="search">
+            <label class="y2k-search-inner">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FF5FAE" stroke-width="2.5" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="M20 20l-4-4"></path>
+              </svg>
+              <input class="y2k-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
+              <button type="submit" class="y2k-search-btn" data-seu-t="newtab.searchButton">BUSCAR</button>
+            </label>
+          </form>
+          <div class="y2k-chips" data-seu-container="searchCategories">
+            <template data-seu-repeat="searchCategories">
+              <button type="button" class="y2k-chip" data-seu-action="search.setCategory" data-seu-param="$item.id" data-seu-bind="$item.label">WEB</button>
+            </template>
+          </div>
+        </div>
+
+        <div class="y2k-shortcuts" data-seu-container="shortcuts">
+          <template data-seu-repeat="shortcuts">
+            <a class="y2k-cd-link" data-seu-href="$item.url">
+              <span class="cd y2k-cd-disc">
+                <span class="y2k-cd-hole" data-seu-bind="$item.code">YT</span>
+              </span>
+              <span data-seu-bind="$item.name">YouTube</span>
+            </a>
+          </template>
+        </div>
+      </main>
+
+      <aside class="y2k-col-right">
+        <div class="y2k-themes-box">
+          <div class="bar y2k-box-bar">
+            <span>interfaces.exe</span>
+            <span class="y2k-mini-x">x</span>
+          </div>
+          <div class="y2k-themes-list" data-seu-container="themes">
+            <template data-seu-repeat="themes">
+              <button type="button" class="y2k-theme-row" data-seu-action="themes.setActive" data-seu-param="$item.id">
+                <span data-seu-bind="$item.name">Y2K Maximal</span>
+                <span class="y2k-theme-dot" data-seu-bind="$item.activeGlyph">●</span>
+              </button>
+            </template>
+          </div>
+          <div class="y2k-themes-foot">
+            <button type="button" class="y2k-create-theme-btn" data-seu-action="tabs.navigateThemes" data-seu-t="y2k.createTheme">+ CRIAR MINHA INTERFACE</button>
+          </div>
+        </div>
+
+        <div class="y2k-gamemode-card">
+          <span class="y2k-new-tag" data-seu-t="y2k.newTag">NOVO!</span>
+          <div class="y2k-gm-title" data-seu-t="y2k.gameModeTitle">MODO JOGO</div>
+          <p class="y2k-gm-desc" data-seu-t="y2k.gameModeDesc">Jogo em tela cheia? Tudo dorme e a RAM volta pro jogo.</p>
+          <button type="button" class="y2k-gm-btn" data-seu-action="gameMode.toggle" data-seu-bind="gameMode.label">[ DESLIGADO ]</button>
+        </div>
+
+        <div class="y2k-terminal">
+          <div class="y2k-term-head">C:\&gt; status.exe</div>
+          <div>motor .......... CEF</div>
+          <div><span data-seu-t="y2k.statusActive">abas ativas ....</span> <span data-seu-bind="window.liveTabsCount">1</span></div>
+          <div><span data-seu-t="y2k.statusSleeping">abas dormindo ..</span> <span data-seu-bind="memory.sleepingCount">0</span></div>
+          <div class="y2k-term-pink"><span data-seu-t="y2k.statusBlocker">bloqueador .....</span> <span data-seu-bind="blocker.statusLabel">ON</span></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <footer class="y2k-ticker">
+    <span>★ <span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.tickerSleeping">ABAS DORMINDO</span></span>
+    <span>♥ <span data-seu-bind="blocker.totalBlocked">0</span> <span data-seu-t="y2k.tickerBlocked">RASTREADORES BARRADOS</span></span>
+    <span>★ <span data-seu-bind="memory.savedText">0 MB DEVOLVIDOS</span></span>
+    <span>♥ <span data-seu-t="y2k.tickerTheme">TEMA:</span> <span data-seu-bind="theme.nameUpper">Y2K MAXIMAL</span></span>
+    <span>★ 0% BLOAT</span>
+  </footer>
+</div>

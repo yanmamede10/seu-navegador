@@ -8,6 +8,7 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 seu-core = { path = "../core" }
+seu-themes = { path = "../themes" }
 thiserror.workspace = true
 
 [lints]

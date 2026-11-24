@@ -233,6 +233,13 @@ impl NativeWindowHost for Win32WindowHost {
                 if let Err(err) = db.set_setting("search_engine", engine_str) {
                     warn!("Failed to persist search_engine setting: {err}");
                 }
+                if let Err(err) = db.set_setting("active_theme_id", &settings.active_theme_id) {
+                    warn!("Failed to persist active_theme_id setting: {err}");
+                }
+                let gm = if settings.game_mode_enabled { "1" } else { "0" };
+                if let Err(err) = db.set_setting("game_mode_enabled", gm) {
+                    warn!("Failed to persist game_mode_enabled setting: {err}");
+                }
             }
         }
     }
@@ -256,6 +263,14 @@ pub fn load_persisted_settings(storage: &Option<Storage>) -> CoreSettings {
             "startpage" => SearchEngine::Startpage,
             _ => SearchEngine::DuckDuckGo,
         };
+    }
+    if let Ok(Some(theme_id)) = db.get_setting("active_theme_id") {
+        if !theme_id.trim().is_empty() {
+            settings.active_theme_id = theme_id;
+        }
+    }
+    if let Ok(Some(gm)) = db.get_setting("game_mode_enabled") {
+        settings.game_mode_enabled = gm == "1";
     }
 
     settings

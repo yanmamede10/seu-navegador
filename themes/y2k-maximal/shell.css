@@ -1,0 +1,424 @@
+@font-face {
+  font-family: 'Audiowide';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/audiowide-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Audiowide';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/audiowide-400-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/silkscreen-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/silkscreen-400-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'VT323';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/vt323-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'VT323';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/vt323-400-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/space-grotesk-400-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(./assets/fonts/space-grotesk-500-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(./assets/fonts/space-grotesk-700-latin.woff2) format('woff2');
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--seu-bg);
+  color: var(--seu-text);
+  font-family: var(--seu-font-body);
+  user-select: none;
+  overflow: hidden;
+}
+
+.y2k-shell {
+  display: flex;
+  flex-direction: column;
+  background: var(--seu-bg);
+}
+
+.y2k-bar {
+  background: linear-gradient(90deg, #1B2A8C, #3D5BFF 60%, var(--seu-accent));
+}
+
+[data-incognito="true"] .y2k-bar {
+  background: linear-gradient(90deg, #1D0B42, #5A2DA8 60%, var(--seu-incognito-accent));
+}
+
+.y2k-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px 0 12px;
+  border-bottom: 2px solid #FFFFFF;
+}
+
+.y2k-drag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.y2k-star {
+  flex-shrink: 0;
+}
+
+.y2k-title-text {
+  font-family: 'Silkscreen', monospace;
+  font-size: 12px;
+  color: #FFFFFF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.y2k-incognito-tag {
+  padding: 2px 8px;
+  border: 2px solid #FFFFFF;
+  background: #070B24;
+  color: #B6FF3B;
+  font-family: 'Silkscreen', monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.y2k-win-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.y2k-win-btn {
+  width: 28px;
+  height: 24px;
+  border: 2px outset #E6E9FF;
+  background: #C9D3FF;
+  color: #070B24;
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.y2k-win-btn:hover {
+  background: #FFFFFF;
+}
+
+.y2k-win-close {
+  border-color: #FFB3D9;
+  background: var(--seu-accent);
+  color: #FFFFFF;
+}
+
+.y2k-win-close:hover {
+  background: #FF5FAE;
+}
+
+.y2k-tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 14px 0;
+  background: var(--seu-surface);
+  border-bottom: 3px solid var(--seu-accent);
+  min-height: 44px;
+}
+
+.y2k-groups {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.y2k-group-chip {
+  height: 28px;
+  padding: 0 10px;
+  border: 2px solid #FFFFFF;
+  border-radius: 10px;
+  color: #070B24;
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.y2k-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.y2k-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.y2k-tab {
+  min-height: 36px;
+  max-width: 220px;
+  min-width: 96px;
+  padding: 0 10px 0 14px;
+  border: 2px solid var(--seu-border);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+  background: var(--seu-surface2);
+  color: #C9D3FF;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.y2k-tab[data-state~="active"] {
+  border-color: var(--seu-accent);
+  background: #141E5C;
+  color: #FFFFFF;
+  font-family: 'Audiowide', sans-serif;
+  font-size: 12px;
+}
+
+.y2k-tab[data-state~="sleeping"] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--seu-text-muted);
+}
+
+.y2k-tab[data-state~="pinned"] {
+  min-width: 44px;
+  max-width: 52px;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.y2k-tab[data-state~="pinned"] .y2k-tab-close {
+  display: none;
+}
+
+.y2k-tab.drag-over {
+  outline: 2px solid #4FD8FF;
+}
+
+.y2k-tab-glyph {
+  font-size: 12px;
+  color: #FF5FAE;
+  flex-shrink: 0;
+}
+
+.y2k-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.y2k-tab-zzz {
+  font-family: 'VT323', monospace;
+  font-size: 17px;
+  color: #4FD8FF;
+  flex-shrink: 0;
+}
+
+.y2k-tab-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.y2k-tab-close:hover {
+  background: rgba(255, 46, 147, 0.35);
+  color: #FFFFFF;
+}
+
+.y2k-newtab-btn {
+  width: 38px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--seu-accent);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.y2k-newtab-btn:hover {
+  color: #B6FF3B;
+}
+
+.y2k-navbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--seu-surface2);
+  border-bottom: 2px solid var(--seu-border);
+}
+
+.y2k-nav-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--seu-border);
+  background: #141E5C;
+  color: var(--seu-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.y2k-nav-btn:hover:not(:disabled) {
+  border-color: #4FD8FF;
+  color: #FFFFFF;
+}
+
+.y2k-nav-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.y2k-menu-btn {
+  border-color: var(--seu-accent);
+  font-family: 'Silkscreen', monospace;
+}
+
+.y2k-omnibox {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 20px;
+  background: var(--seu-bg);
+  border: 2px solid var(--seu-border);
+}
+
+.y2k-omnibox:focus-within {
+  border-color: var(--seu-accent);
+}
+
+.y2k-prompt {
+  font-family: 'VT323', monospace;
+  font-size: 20px;
+  color: var(--seu-accent);
+  line-height: 1;
+}
+
+.y2k-url-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--seu-text);
+  font-family: var(--seu-font-body);
+  font-size: 14px;
+}
+
+.y2k-url-input::placeholder {
+  color: var(--seu-text-muted);
+}
+
+.y2k-ram-pill {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 16px;
+  background: var(--seu-bg);
+  border: 2px solid #4FD8FF;
+  font-family: 'VT323', monospace;
+  font-size: 19px;
+  color: #4FD8FF;
+  white-space: nowrap;
+}
+
+.y2k-blocker-pill {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 16px;
+  background: #B6FF3B;
+  color: #070B24;
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+}
