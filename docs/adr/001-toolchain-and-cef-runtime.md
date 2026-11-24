@@ -1,6 +1,6 @@
 # ADR 001: Toolchain Windows, CEF Runtime e Estratégia de Build
 
-- **Status:** Aceito (Fase 0 — pendente validação prática no primeiro build do Spike)
+- **Status:** Aceito e validado na Fase 0
 - **Data:** 2026-11-23
 - **Decisores:** Yan
 
@@ -39,3 +39,12 @@ Restrições do projeto:
 - O PC local permanece 100% livre de Visual Studio / Build Tools / SDKs da Microsoft.
 - O repositório nasce com pipeline reproduzível no GitHub Actions.
 - Precisaremos de disciplina em testes unitários, `clippy` e preview local via Vite para reduzir a quantidade de ciclos de push necessários para depurar mudanças visuais ou de lógica.
+
+## Resultados medidos na Fase 0 (Spike)
+- **Versão CEF:** `cef` `156.7.0+156.0.31` (Chrome runtime com `RuntimeStyle::ALLOY`, `no_sandbox = 1`).
+- **Portabilidade:** executável (`160 KB`) + runtime CEF abriram no Windows sem solicitar nenhuma DLL/runtime da Microsoft.
+- **Reprodução web:** YouTube carregou em Alloy style (sem UI do Chrome) com vídeo e áudio funcionando normalmente (VP9/AV1/Opus).
+- **RAM de base (sem bloqueador de anúncios e sem flags de otimização):**
+  - **YouTube Home (estabilizado, 9 processos):** `377.3 MB` Private Bytes (`682.1 MB` Working Set).
+  - **YouTube vídeo tocando (8 processos):** `344.9 MB` Private Bytes (`635.9 MB` Working Set) — `browser` `80.9 MB`, `renderer` principal `199.7 MB`, `renderer` subframe `16.2 MB`, `NetworkService` `12.7 MB`, `VideoCaptureService` `11.6 MB`, `gpu-process` `9.9 MB`, `AudioService` `7.1 MB`, `StorageService` `6.8 MB`.
+- **Observação para a Fase 1:** o CEF emitiu warning pedindo `CefSettings.root_cache_path` customizado; na Fase 1 configuraremos explicitamente `%LOCALAPPDATA%\SeuNavegador\profile`.
