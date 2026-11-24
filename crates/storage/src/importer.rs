@@ -500,10 +500,8 @@ fn build_quick_shortcuts_from_pairs(
 fn extract_host_and_origin(url: &str) -> Option<(String, String)> {
     let (scheme, rest) = if let Some(r) = url.strip_prefix("https://") {
         ("https://", r)
-    } else if let Some(r) = url.strip_prefix("http://") {
-        ("http://", r)
     } else {
-        return None;
+        ("http://", url.strip_prefix("http://")?)
     };
     let host = rest.split(['/', '?', '#']).next()?.trim();
     if host.is_empty() || host.contains("localhost") || host.starts_with("127.") {
