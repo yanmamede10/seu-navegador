@@ -62,7 +62,6 @@ struct SharedState {
     router: Arc<BrowserSideRouter>,
     windows: HashMap<WindowId, WindowViews>,
     tab_browsers: HashMap<TabId, Browser>,
-    browser_id_to_kind: HashMap<i32, ViewKind>,
     incognito_contexts: HashMap<WindowId, RequestContext>,
 }
 
@@ -111,7 +110,6 @@ impl CefEngine {
             router: router.clone(),
             windows: HashMap::new(),
             tab_browsers: HashMap::new(),
-            browser_id_to_kind: HashMap::new(),
             incognito_contexts: HashMap::new(),
         }));
 
@@ -898,9 +896,7 @@ wrap_scheme_handler_factory! {
             let stream = stream_reader_create_for_handler(Some(&mut read_handler));
 
             let mut headers = CefStringMultimap::new();
-            let csp_key = CefString::from("Content-Security-Policy");
-            let csp_val = CefString::from(STRICT_SEU_CSP);
-            headers.append(&csp_key, &csp_val);
+            headers.append("Content-Security-Policy", STRICT_SEU_CSP);
 
             Some(StreamResourceHandler::new(
                 resolved.status_code,
@@ -1184,11 +1180,9 @@ wrap_life_span_handler! {
             let Some(browser) = browser.cloned() else {
                 return;
             };
-            let browser_id = browser.identifier();
             let mut broadcast_win: Option<WindowId> = None;
 
             if let Ok(mut guard) = self.state.lock() {
-                guard.browser_id_to_kind.insert(browser_id, self.kind);
                 match self.kind {
                     ViewKind::Shell(wid) => {
                         if let Some(w) = guard.windows.get_mut(&wid) {
@@ -1231,12 +1225,7 @@ wrap_life_span_handler! {
         }
 
         fn on_before_close(&self, browser: Option<&mut Browser>) {
-            let router = self.state.lock().ok().map(|mut g| {
-                if let Some(b) = browser.as_ref() {
-                    g.browser_id_to_kind.remove(&b.identifier());
-                }
-                g.router.clone()
-            });
+            let router = self.state.lock().ok().map(|g| g.router.clone());
             if let Some(router) = router {
                 router.on_before_close(browser.cloned());
             }

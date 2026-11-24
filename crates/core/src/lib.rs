@@ -191,10 +191,9 @@ impl BrowserCore {
         self.window_order.push(window_id);
 
         let url = initial_url.unwrap_or(NEWTAB_URL);
-        let tab_id = match self.create_tab(window_id, Some(url), true) {
-            Ok(id) => id,
-            Err(_) => 0,
-        };
+        let tab_id = self
+            .create_tab(window_id, Some(url), true)
+            .unwrap_or_default();
         (window_id, tab_id)
     }
 
@@ -432,17 +431,11 @@ impl BrowserCore {
         if let Some(win) = self.windows.get_mut(&window_id) {
             if let Some(pos) = win.tab_ids.iter().position(|&id| id == tab_id) {
                 win.tab_ids.remove(pos);
-                let target_idx = if pinned {
-                    win.tab_ids
-                        .iter()
-                        .take_while(|id| self.tabs.get(id).map(|t| t.pinned).unwrap_or(false))
-                        .count()
-                } else {
-                    win.tab_ids
-                        .iter()
-                        .take_while(|id| self.tabs.get(id).map(|t| t.pinned).unwrap_or(false))
-                        .count()
-                };
+                let target_idx = win
+                    .tab_ids
+                    .iter()
+                    .take_while(|id| self.tabs.get(id).map(|t| t.pinned).unwrap_or(false))
+                    .count();
                 win.tab_ids.insert(target_idx, tab_id);
             }
         }
