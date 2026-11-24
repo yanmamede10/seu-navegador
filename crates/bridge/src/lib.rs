@@ -281,7 +281,7 @@ pub fn dispatch_request(
             effects: vec![HostEffect::StartWindowDrag { window_id }],
         }),
         BridgeRequest::WindowSetShellBounds { window_id, height } => {
-            let clamped = height.clamp(32, 360);
+            let clamped = height.clamp(32, 640);
             Ok(DispatchOutput {
                 response: BridgeResponse::Ok,
                 effects: vec![HostEffect::SetShellHeight {

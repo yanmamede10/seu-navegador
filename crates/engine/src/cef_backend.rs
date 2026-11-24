@@ -77,7 +77,8 @@ impl CefEngine {
     pub fn execute_subprocess_if_needed() -> Option<i32> {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
         let args = cef::args::Args::new();
-        let mut app = SeuCefApp::new(None);
+        let renderer_router = RendererSideRouter::new(MessageRouterConfig::default());
+        let mut app = SeuCefApp::new(None, renderer_router);
         let code = execute_process(
             Some(args.as_main_args()),
             Some(&mut app),
@@ -115,7 +116,8 @@ impl CefEngine {
 
         let _ = ENGINE_STATE.set(shared.clone());
 
-        let mut app = SeuCefApp::new(Some(shared.clone()));
+        let renderer_router = RendererSideRouter::new(MessageRouterConfig::default());
+        let mut app = SeuCefApp::new(Some(shared.clone()), renderer_router);
 
         if let Err(err) = std::fs::create_dir_all(&config.root_cache_path) {
             warn!("Could not create CEF root_cache_path: {err}");
@@ -616,7 +618,7 @@ fn create_full_browser_window(
         return;
     };
 
-    let default_shell_height = 112;
+    let default_shell_height = 140;
     if let Ok(mut guard) = state.lock() {
         guard.windows.insert(
             window_id,
@@ -897,6 +899,7 @@ wrap_scheme_handler_factory! {
 
             let mut headers = CefStringMultimap::new();
             headers.append("Content-Security-Policy", STRICT_SEU_CSP);
+            headers.append("Access-Control-Allow-Origin", "*");
             if resolved.mime_type.starts_with("text/")
                 || resolved.mime_type == "application/javascript"
                 || resolved.mime_type == "application/json"
@@ -921,6 +924,7 @@ wrap_scheme_handler_factory! {
 wrap_app! {
     struct SeuCefApp {
         state: Option<Arc<Mutex<SharedState>>>,
+        renderer_router: Arc<RendererSideRouter>,
     }
 
     impl App {
@@ -943,8 +947,7 @@ wrap_app! {
         }
 
         fn render_process_handler(&self) -> Option<RenderProcessHandler> {
-            let router = RendererSideRouter::new(MessageRouterConfig::default());
-            Some(SeuRenderProcessHandler::new(router))
+            Some(SeuRenderProcessHandler::new(self.renderer_router.clone()))
         }
     }
 }

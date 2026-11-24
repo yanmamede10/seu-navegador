@@ -74,16 +74,17 @@ onBridgeEvent((event) => {
 });
 
 async function bootstrap(): Promise<void> {
+  applyLocale();
+  renderShortcuts();
   try {
     const settings = await callBridge<CoreSettings>("settings.get");
     if (settings?.locale) {
       setLocale(settings.locale);
+      applyLocale();
     }
   } catch {
     // Keep defaults.
   }
-  applyLocale();
-  renderShortcuts();
 }
 
 void bootstrap();

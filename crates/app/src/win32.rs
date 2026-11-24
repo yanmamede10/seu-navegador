@@ -20,12 +20,13 @@ use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowLongPtrW,
-    GetWindowRect, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetWindowLongPtrW,
-    ShowWindow, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, HTBOTTOM,
-    HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT,
-    HTTOPRIGHT, IDC_ARROW, NCCALCSIZE_PARAMS, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
-    WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_SIZE, WNDCLASSEXW, WS_CLIPCHILDREN,
-    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    GetWindowRect, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetForegroundWindow,
+    SetWindowLongPtrW, ShowWindow, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
+    GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP,
+    HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, NCCALCSIZE_PARAMS, SC_MOVE, SW_MAXIMIZE, SW_MINIMIZE,
+    SW_RESTORE, SW_SHOW, WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SIZE, WM_SYSCOMMAND,
+    WNDCLASSEXW, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    WS_THICKFRAME,
 };
 
 const WINDOW_CLASS: &str = "SeuNavegadorFramelessWindow";
@@ -205,8 +206,10 @@ impl NativeWindowHost for Win32WindowHost {
     fn start_window_drag(&self, window_id: WindowId) {
         if let Some(hwnd) = self.hwnd_for(window_id) {
             unsafe {
+                let _ = SetForegroundWindow(hwnd);
                 ReleaseCapture();
-                PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as WPARAM, 0);
+                // 0xF012 = SC_MOVE | HTCAPTION initiates native drag even when click started in a child CEF HWND.
+                PostMessageW(hwnd, WM_SYSCOMMAND, (SC_MOVE | 0x0002) as WPARAM, 0);
             }
         }
     }

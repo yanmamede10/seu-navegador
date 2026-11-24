@@ -237,27 +237,38 @@ btnMenu.addEventListener("click", () => {
     void callBridge("overlay.close", { window_id: windowId });
     return;
   }
+  const dpr = window.devicePixelRatio || 1;
   const rect = shellRoot.getBoundingClientRect();
-  const width = 270;
-  const x = Math.max(8, Math.round(window.innerWidth - width - 10));
-  const y = Math.round(rect.height + 4);
+  const widthCss = 270;
+  const heightCss = 320;
+  const xCss = Math.max(8, window.innerWidth - widthCss - 10);
+  const yCss = rect.height + 4;
   overlayOpen = true;
   void callBridge("overlay.open", {
     window_id: windowId,
     panel: "menu",
-    x,
-    y,
-    width,
-    height: 310,
+    x: Math.round(xCss * dpr),
+    y: Math.round(yCss * dpr),
+    width: Math.round(widthCss * dpr),
+    height: Math.round(heightCss * dpr),
   });
 });
 
-// Report dynamic shell height to Rust so content view stays positioned cleanly below.
-const resizeObserver = new ResizeObserver((entries) => {
-  const height = Math.ceil(entries[0]?.contentRect.height ?? shellRoot.offsetHeight);
-  if (height > 0) {
-    void callBridge("windows.setShellBounds", { window_id: windowId, height });
+// Report dynamic shell height (in physical pixels for Win32 SetWindowPos).
+function reportShellHeight(): void {
+  const dpr = window.devicePixelRatio || 1;
+  const cssHeight = shellRoot.getBoundingClientRect().height || shellRoot.offsetHeight;
+  const physicalHeight = Math.ceil(cssHeight * dpr);
+  if (physicalHeight > 0) {
+    void callBridge("windows.setShellBounds", {
+      window_id: windowId,
+      height: physicalHeight,
+    });
   }
+}
+
+const resizeObserver = new ResizeObserver(() => {
+  reportShellHeight();
 });
 resizeObserver.observe(shellRoot);
 
@@ -276,15 +287,17 @@ onBridgeEvent((event) => {
 });
 
 async function bootstrap(): Promise<void> {
+  applyLocalizedLabels();
+  reportShellHeight();
   try {
     const settings = await callBridge<CoreSettings>("settings.get");
     if (settings?.locale) {
       setLocale(settings.locale);
+      applyLocalizedLabels();
     }
   } catch {
     // Keep default locale if unavailable during preview.
   }
-  applyLocalizedLabels();
 
   try {
     const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
@@ -292,6 +305,7 @@ async function bootstrap(): Promise<void> {
     });
     if (snap) {
       renderSnapshot(snap);
+      reportShellHeight();
     }
   } catch {
     // Initial state will arrive via push event.
