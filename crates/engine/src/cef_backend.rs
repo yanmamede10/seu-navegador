@@ -22,7 +22,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{error, info, warn};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
+    DestroyWindow, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE,
+    SW_SHOW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1277,6 +1278,21 @@ wrap_life_span_handler! {
             if let Some(wid) = broadcast_win {
                 broadcast_window_state(&self.state, wid);
             }
+        }
+
+        fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
+            // All CEF browsers in Seu Navegador are embedded child HWNDs (`set_as_child`).
+            // Destroy ONLY the child CEF HWND and return 1 so CEF never posts WM_CLOSE
+            // to our top-level parent window when closing a single tab.
+            if let Some(host) = browser.and_then(|b| b.host()) {
+                let hwnd: HWND = host.window_handle().0.cast();
+                if !hwnd.is_null() {
+                    unsafe {
+                        DestroyWindow(hwnd);
+                    }
+                }
+            }
+            1
         }
 
         fn on_before_close(&self, browser: Option<&mut Browser>) {

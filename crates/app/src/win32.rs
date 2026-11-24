@@ -21,12 +21,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowLongPtrW,
     GetWindowRect, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetForegroundWindow,
-    SetWindowLongPtrW, ShowWindow, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
     GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP,
-    HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, NCCALCSIZE_PARAMS, SC_MOVE, SW_MAXIMIZE, SW_MINIMIZE,
-    SW_RESTORE, SW_SHOW, WM_CLOSE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SIZE, WM_SYSCOMMAND,
-    WNDCLASSEXW, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
-    WS_THICKFRAME,
+    HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, MINMAXINFO, NCCALCSIZE_PARAMS, SC_MOVE, SWP_FRAMECHANGED,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WM_CLOSE,
+    WM_GETMINMAXINFO, WM_NCCALCSIZE, WM_NCHITTEST, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW,
+    WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
 };
 
 const WINDOW_CLASS: &str = "SeuNavegadorFramelessWindow";
@@ -101,12 +101,7 @@ impl NativeWindowHost for Win32WindowHost {
         let class_name = wide_null(WINDOW_CLASS);
         let title_w = wide_null(title);
 
-        let style = WS_POPUP
-            | WS_THICKFRAME
-            | WS_MINIMIZEBOX
-            | WS_MAXIMIZEBOX
-            | WS_SYSMENU
-            | WS_CLIPCHILDREN;
+        let style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
 
         let hwnd = unsafe {
             let hinstance = GetModuleHandleW(std::ptr::null());
@@ -141,6 +136,15 @@ impl NativeWindowHost for Win32WindowHost {
                 cyBottomHeight: 0,
             };
             let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+            );
             ShowWindow(hwnd, SW_SHOW);
         }
 
@@ -264,9 +268,38 @@ unsafe extern "system" fn wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_GETMINMAXINFO => {
+            let mmi = &mut *(lparam as *mut MINMAXINFO);
+            mmi.ptMinTrackSize.x = 480;
+            mmi.ptMinTrackSize.y = 320;
+
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                rcMonitor: RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                },
+                rcWork: RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                },
+                dwFlags: 0,
+            };
+            if GetMonitorInfoW(monitor, &mut info) != 0 {
+                mmi.ptMaxPosition.x = info.rcWork.left - info.rcMonitor.left;
+                mmi.ptMaxPosition.y = info.rcWork.top - info.rcMonitor.top;
+                mmi.ptMaxSize.x = info.rcWork.right - info.rcWork.left;
+                mmi.ptMaxSize.y = info.rcWork.bottom - info.rcWork.top;
+            }
+            0
+        }
         WM_NCCALCSIZE => {
             if wparam != 0 {
-                // Keep maximized windows aligned inside the monitor work area.
                 if IsZoomed(hwnd) != 0 {
                     let params = &mut *(lparam as *mut NCCALCSIZE_PARAMS);
                     let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
