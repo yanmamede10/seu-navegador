@@ -142,3 +142,10 @@ jobs:
           name: seu-navegador-win64
           path: dist/seu-navegador-win64.zip
           retention-days: 14
+
+      - name: Upload lightweight exe-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seu-navegador-exe-win64
+          path: target/release/seu-navegador.exe
+          retention-days: 14

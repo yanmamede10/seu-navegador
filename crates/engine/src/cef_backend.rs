@@ -897,6 +897,15 @@ wrap_scheme_handler_factory! {
 
             let mut headers = CefStringMultimap::new();
             headers.append("Content-Security-Policy", STRICT_SEU_CSP);
+            if resolved.mime_type.starts_with("text/")
+                || resolved.mime_type == "application/javascript"
+                || resolved.mime_type == "application/json"
+            {
+                headers.append(
+                    "Content-Type",
+                    &format!("{}; charset=utf-8", resolved.mime_type),
+                );
+            }
 
             Some(StreamResourceHandler::new(
                 resolved.status_code,
@@ -974,6 +983,27 @@ wrap_browser_process_handler! {
             };
 
             create_full_browser_window(&self.state, window_id, false, tab_id, &initial_url);
+        }
+
+        fn on_already_running_app_relaunch(
+            &self,
+            _command_line: Option<&mut CommandLine>,
+            _current_directory: Option<&CefString>,
+        ) -> i32 {
+            let created = {
+                let Ok(mut guard) = self.state.lock() else {
+                    return 1;
+                };
+                let (wid, tid) = guard.core.create_window(false, None);
+                let url = guard
+                    .core
+                    .get_tab(tid)
+                    .map(|t| t.url.clone())
+                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                (wid, tid, url)
+            };
+            create_full_browser_window(&self.state, created.0, false, created.1, &created.2);
+            1
         }
     }
 }

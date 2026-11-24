@@ -61,14 +61,16 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
 }
 
 fn mime_for_path(path: &str) -> &'static str {
+    // CEF's `response.set_mime_type` requires a pure MIME type (without `; charset=...`),
+    // otherwise Chromium falls back to rendering the payload as plain text.
     if path.ends_with(".html") {
-        "text/html; charset=utf-8"
+        "text/html"
     } else if path.ends_with(".js") || path.ends_with(".mjs") {
-        "application/javascript; charset=utf-8"
+        "application/javascript"
     } else if path.ends_with(".css") {
-        "text/css; charset=utf-8"
+        "text/css"
     } else if path.ends_with(".json") {
-        "application/json; charset=utf-8"
+        "application/json"
     } else if path.ends_with(".svg") {
         "image/svg+xml"
     } else if path.ends_with(".png") {
@@ -91,7 +93,7 @@ fn placeholder_internal_page(host: &str) -> ResolvedAsset {
     ResolvedAsset {
         status_code: 200,
         status_text: "OK",
-        mime_type: "text/html; charset=utf-8",
+        mime_type: "text/html",
         bytes: html.into_bytes(),
     }
 }
@@ -100,7 +102,7 @@ fn not_found() -> ResolvedAsset {
     ResolvedAsset {
         status_code: 404,
         status_text: "Not Found",
-        mime_type: "text/plain; charset=utf-8",
+        mime_type: "text/plain",
         bytes: b"404 Not Found".to_vec(),
     }
 }
@@ -113,7 +115,7 @@ mod tests {
     fn resolves_core_seu_pages_and_blocks_traversal() {
         let shell = resolve_seu_url("seu://shell/?win=1");
         assert_eq!(shell.status_code, 200);
-        assert!(shell.mime_type.starts_with("text/html"));
+        assert_eq!(shell.mime_type, "text/html");
         assert!(!shell.bytes.is_empty());
 
         let overlay = resolve_seu_url("seu://overlay/?win=1");
