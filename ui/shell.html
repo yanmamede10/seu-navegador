@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seu Navegador — Shell</title>
+    <link rel="stylesheet" href="./src/shell.css" />
+  </head>
+  <body>
+    <div id="shell-root" class="shell">
+      <header class="titlebar" id="titlebar">
+        <div class="titlebar-drag" id="drag-region">
+          <span class="brand-dot"></span>
+          <span class="brand-title" id="brand-title">Seu Navegador</span>
+          <span class="incognito-pill" id="incognito-pill" hidden>Anônimo</span>
+        </div>
+        <div class="window-controls">
+          <button id="btn-min" class="win-btn" type="button" title="Minimizar">_</button>
+          <button id="btn-max" class="win-btn" type="button" title="Maximizar">□</button>
+          <button id="btn-close" class="win-btn win-close" type="button" title="Fechar">×</button>
+        </div>
+      </header>
+
+      <div class="tabbar" id="tabbar">
+        <div class="tabs-scroll" id="tabs-list"></div>
+        <button id="btn-new-tab" class="icon-btn new-tab-btn" type="button" title="Nova aba">+</button>
+      </div>
+
+      <div class="navbar">
+        <button id="btn-back" class="icon-btn" type="button" title="Voltar">←</button>
+        <button id="btn-forward" class="icon-btn" type="button" title="Avançar">→</button>
+        <button id="btn-reload" class="icon-btn" type="button" title="Recarregar">↻</button>
+
+        <form id="omnibox-form" class="omnibox-wrap">
+          <span class="omnibox-lock" id="omnibox-lock">●</span>
+          <input
+            id="omnibox-input"
+            class="omnibox-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </form>
+
+        <span class="pill-badge" id="badge-ram">RAM -- MB</span>
+        <span class="pill-badge pill-accent" id="badge-blocker">0</span>
+        <button id="btn-menu" class="icon-btn" type="button" title="Menu">≡</button>
+      </div>
+    </div>
+
+    <script type="module" src="./src/shell.ts"></script>
+  </body>
+</html>

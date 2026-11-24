@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/bridge",
+    "crates/storage",
+    "crates/blocker",
+    "crates/themes",
+    "crates/engine",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Yan Mamede"]
+repository = "https://github.com/yanmamede10/seu-navegador"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+rusqlite = { version = "0.34", features = ["bundled"] }
+include_dir = "0.7"
+cef = "156"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Controls",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

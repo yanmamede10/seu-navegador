@@ -1,0 +1,125 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #141e5c 0%, #070b24 65%);
+  color: #e6e9ff;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.newtab {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 72px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.hero {
+  margin: 0;
+  font-size: clamp(36px, 6vw, 64px);
+  letter-spacing: -1px;
+  color: #ffffff;
+  text-shadow: 0 4px 20px rgba(255, 46, 147, 0.45);
+}
+
+.subtitle {
+  margin: 0;
+  color: #9ba7df;
+  font-size: 14px;
+}
+
+.search-box {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 2px solid #2a3680;
+  background: #0b1240;
+}
+
+.search-box:focus-within {
+  border-color: #ff2e93;
+}
+
+.search-box input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #ffffff;
+  font-size: 16px;
+  padding: 10px 16px;
+}
+
+.search-box button {
+  padding: 0 24px;
+  border-radius: 999px;
+  border: none;
+  background: #ff2e93;
+  color: #070b24;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.shortcuts-section {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.shortcuts-section h2 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8f9bd9;
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 12px;
+}
+
+.shortcut-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 10px;
+  border-radius: 14px;
+  border: 1px solid #2a3680;
+  background: #0e1650;
+  color: #e6e9ff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shortcut-card:hover {
+  border-color: #4fd8ff;
+  transform: translateY(-2px);
+}
+
+.shortcut-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #141e5c;
+  border: 1px solid #ff2e93;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #4fd8ff;
+}

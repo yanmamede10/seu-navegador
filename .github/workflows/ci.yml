@@ -1,0 +1,144 @@
+name: CI (Checks & Windows Build)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks-linux:
+    name: UI + Portable Crates (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI bundle
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy (portable crates)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run unit & integration tests (portable crates)
+        run: cargo test --workspace
+
+  build-windows:
+    name: Build & Package (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI bundle
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry & build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Restore CEF binaries cache
+        id: cache-cef
+        uses: actions/cache/restore@v4
+        with:
+          path: ~\cef-cache
+          key: win64-cef-156-v1
+
+      - name: Export CEF directory (if cache miss)
+        if: steps.cache-cef.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cargo install export-cef-dir --version "^156" --locked
+          export-cef-dir --force "$env:USERPROFILE\cef-cache"
+
+      - name: Save CEF binaries cache
+        if: always() && steps.cache-cef.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~\cef-cache
+          key: win64-cef-156-v1
+
+      - name: Configure CEF environment
+        shell: pwsh
+        run: |
+          $cefDir = "$env:USERPROFILE\cef-cache"
+          echo "CEF_PATH=$cefDir" >> $env:GITHUB_ENV
+          echo "$cefDir" >> $env:GITHUB_PATH
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy (Windows workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests (Windows workspace)
+        run: cargo test --workspace
+
+      - name: Build release binary
+        run: cargo build --release --bin seu-navegador
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $outDir = "dist\seu-navegador-win64"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          Copy-Item -Path "$env:CEF_PATH\*" -Destination $outDir -Recurse -Force
+          Copy-Item -Path "target\release\seu-navegador.exe" -Destination $outDir -Force
+
+          foreach ($devDir in @("include", "libcef_dll", "cmake", "Release", "Debug")) {
+            $p = Join-Path $outDir $devDir
+            if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+          }
+          Get-ChildItem -Path $outDir -Include "*.lib","*.exp","*.pdb","*.cmake","CMakeLists.txt" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+
+          Compress-Archive -Path "$outDir\*" -DestinationPath "dist\seu-navegador-win64.zip" -Force
+
+      - name: Upload portable Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seu-navegador-win64
+          path: dist/seu-navegador-win64.zip
+          retention-days: 14

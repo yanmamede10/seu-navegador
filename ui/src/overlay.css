@@ -1,0 +1,85 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #0d1330;
+  color: #e6e9ff;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  overflow: hidden;
+}
+
+.overlay-card {
+  width: 100vw;
+  height: 100vh;
+  padding: 8px;
+  border: 1px solid #ff2e93;
+  background: #0d1330;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.menu-btn {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: #141d47;
+  color: #e6e9ff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.menu-btn:hover {
+  border-color: #4fd8ff;
+  background: #1b2861;
+}
+
+.menu-sep {
+  height: 1px;
+  background: #24306e;
+  margin: 4px 0;
+}
+
+.menu-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #8f9bd9;
+  padding: 2px 4px;
+}
+
+.pill-row {
+  display: flex;
+  gap: 6px;
+}
+
+.pill-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #2c3b82;
+  background: #090e24;
+  color: #c9d3ff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pill-btn.active {
+  border-color: #ff2e93;
+  background: #ff2e93;
+  color: #070b1a;
+  font-weight: 700;
+}

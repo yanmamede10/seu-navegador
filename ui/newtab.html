@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seu Navegador — Nova aba</title>
+    <link rel="stylesheet" href="./src/newtab.css" />
+  </head>
+  <body>
+    <main class="newtab">
+      <h1 class="hero">SEU NAVEGADOR</h1>
+      <p class="subtitle" id="subtitle">Fase 1 · Esqueleto leve em Rust + CEF Alloy</p>
+
+      <form id="search-form" class="search-box">
+        <input id="search-input" type="text" autocomplete="off" />
+        <button id="search-btn" type="submit">Buscar</button>
+      </form>
+
+      <section class="shortcuts-section">
+        <h2 id="shortcuts-heading">Atalhos rápidos</h2>
+        <div class="shortcuts-grid" id="shortcuts-grid"></div>
+      </section>
+    </main>
+    <script type="module" src="./src/newtab.ts"></script>
+  </body>
+</html>

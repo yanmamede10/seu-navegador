@@ -1,0 +1,23 @@
+[package]
+name = "seu-navegador"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "seu-navegador"
+path = "src/main.rs"
+
+[dependencies]
+seu-bridge = { path = "../bridge" }
+seu-core = { path = "../core" }
+seu-engine = { path = "../engine" }
+seu-storage = { path = "../storage" }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys.workspace = true
+
+[lints]
+workspace = true

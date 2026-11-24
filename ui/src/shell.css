@@ -1,0 +1,281 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #0b1024;
+  color: #e6e9ff;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  overflow: hidden;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  background: #0b1024;
+  border-bottom: 1px solid #25306b;
+}
+
+.shell.incognito {
+  background: #170b2b;
+  border-bottom-color: #5b3b9c;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding-left: 10px;
+  background: #070b1a;
+  border-bottom: 1px solid #1c2554;
+}
+
+.shell.incognito .titlebar {
+  background: #120722;
+}
+
+.titlebar-drag {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+}
+
+.brand-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff2e93;
+  box-shadow: 0 0 8px #ff2e93;
+}
+
+.brand-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.incognito-pill {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #7b61ff;
+  color: #ffffff;
+}
+
+.window-controls {
+  display: flex;
+  height: 100%;
+}
+
+.win-btn {
+  width: 38px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #c9d3ff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.win-btn:hover {
+  background: #1b2556;
+  color: #ffffff;
+}
+
+.win-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.tabbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px 0;
+  min-height: 36px;
+}
+
+.tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  scrollbar-width: none;
+}
+
+.tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  font-weight: 700;
+  color: #070b1a;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 210px;
+  min-width: 90px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid #1f2a60;
+  border-bottom: none;
+  background: #0e1636;
+  color: #9ba7df;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab-item.pinned {
+  min-width: 38px;
+  max-width: 46px;
+  justify-content: center;
+  padding: 0 6px;
+}
+
+.tab-item.active {
+  background: #172252;
+  color: #ffffff;
+  border-color: #ff2e93;
+}
+
+.tab-item.drag-over {
+  outline: 2px solid #4fd8ff;
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tab-close:hover {
+  background: rgba(255, 46, 147, 0.28);
+  color: #ffffff;
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #11193d;
+}
+
+.shell.incognito .navbar {
+  background: #20103d;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #263475;
+  background: #172252;
+  color: #e6e9ff;
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: #4fd8ff;
+  color: #ffffff;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.omnibox-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: 1px solid #2c3b82;
+  background: #070b1a;
+}
+
+.omnibox-wrap:focus-within {
+  border-color: #ff2e93;
+}
+
+.omnibox-lock {
+  font-size: 10px;
+  color: #4fd8ff;
+}
+
+.omnibox-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e6e9ff;
+  font-size: 13px;
+}
+
+.pill-badge {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #2f438c;
+  background: #070b1a;
+  color: #4fd8ff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.pill-accent {
+  background: #b6ff3b;
+  color: #070b1a;
+  border-color: #b6ff3b;
+}
