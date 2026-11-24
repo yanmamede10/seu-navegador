@@ -22,8 +22,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{error, info, warn};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE,
-    SW_SHOW,
+    DestroyWindow, SetParent, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOZORDER,
+    SW_HIDE, SW_SHOW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -886,7 +886,15 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                 if let Ok(cb) = callback.lock() {
                     cb.success_str(&json);
                 }
-                execute_effects(&self.state, output.effects);
+                if !output.effects.is_empty() {
+                    // Always defer effects to the next UI-thread tick so `BrowserSideRouter`
+                    // releases its internal locks before any navigation/close callbacks fire.
+                    let mut task = ExecuteEffectsTask::new(
+                        self.state.clone(),
+                        Mutex::new(Some(output.effects)),
+                    );
+                    post_task(ThreadId::UI, Some(&mut task));
+                }
             }
             Err(err) => {
                 if let Ok(cb) = callback.lock() {
@@ -1282,14 +1290,13 @@ wrap_life_span_handler! {
 
         fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
             // All CEF browsers in Seu Navegador are embedded child HWNDs (`set_as_child`).
-            // Destroy ONLY the child CEF HWND and return 1 so CEF never posts WM_CLOSE
-            // to our top-level parent window when closing a single tab.
+            // Detach and destroy ONLY the child CEF HWND asynchronously on the next UI tick,
+            // returning 1 so CEF never posts WM_CLOSE to our top-level parent window.
             if let Some(host) = browser.and_then(|b| b.host()) {
-                let hwnd: HWND = host.window_handle().0.cast();
-                if !hwnd.is_null() {
-                    unsafe {
-                        DestroyWindow(hwnd);
-                    }
+                let hwnd_raw = host.window_handle().0 as isize;
+                if hwnd_raw != 0 {
+                    let mut task = DestroyChildHwndTask::new(hwnd_raw);
+                    post_task(ThreadId::UI, Some(&mut task));
                 }
             }
             1
@@ -1364,6 +1371,40 @@ wrap_task! {
     impl Task {
         fn execute(&self) {
             handle_native_window_closed(&self.state, self.window_id);
+        }
+    }
+}
+
+wrap_task! {
+    struct ExecuteEffectsTask {
+        state: Arc<Mutex<SharedState>>,
+        effects: Mutex<Option<Vec<HostEffect>>>,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let effects = self.effects.lock().ok().and_then(|mut g| g.take());
+            if let Some(effects) = effects {
+                execute_effects(&self.state, effects);
+            }
+        }
+    }
+}
+
+wrap_task! {
+    struct DestroyChildHwndTask {
+        hwnd_raw: isize,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let hwnd = self.hwnd_raw as HWND;
+            if !hwnd.is_null() {
+                unsafe {
+                    SetParent(hwnd, std::ptr::null_mut());
+                    DestroyWindow(hwnd);
+                }
+            }
         }
     }
 }
