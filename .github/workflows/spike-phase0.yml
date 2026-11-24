@@ -25,6 +25,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: spike -> target
+          cache-on-failure: true
 
       - name: Cache CEF binaries
         id: cache-cef
@@ -32,6 +33,7 @@ jobs:
         with:
           path: ~\cef-cache
           key: win64-cef-156-v1
+          save-always: true
 
       - name: Export CEF directory (if cache miss)
         if: steps.cache-cef.outputs.cache-hit != 'true'

@@ -144,7 +144,7 @@ wrap_window_delegate! {
 fn main() {
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
-    let args = Args::new();
+    let args = cef::args::Args::new();
     let exit_code = execute_process(Some(args.as_main_args()), None, std::ptr::null_mut());
     if exit_code >= 0 {
         std::process::exit(exit_code);
