@@ -4,8 +4,14 @@
 //! By architectural contract (SPEC §12.1), this crate MUST NOT depend on CEF
 //! or Win32 so it can be shared with Android via UniFFI in the future.
 
+pub mod shortcuts;
+
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use shortcuts::{
+    default_chrome_shortcuts, default_quick_shortcuts, merge_with_defaults, KeyCombo,
+    QuickShortcut, ShortcutAction,
+};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use thiserror::Error;
 
 pub const NEWTAB_URL: &str = "seu://newtab/";
@@ -161,6 +167,10 @@ pub struct CoreSettings {
     pub search_engine: SearchEngine,
     pub active_theme_id: String,
     pub game_mode_enabled: bool,
+    #[serde(default = "default_chrome_shortcuts")]
+    pub shortcuts: BTreeMap<String, String>,
+    #[serde(default = "default_quick_shortcuts")]
+    pub quick_shortcuts: Vec<QuickShortcut>,
 }
 
 impl Default for CoreSettings {
@@ -170,6 +180,8 @@ impl Default for CoreSettings {
             search_engine: SearchEngine::DuckDuckGo,
             active_theme_id: "y2k-maximal".to_string(),
             game_mode_enabled: false,
+            shortcuts: default_chrome_shortcuts(),
+            quick_shortcuts: default_quick_shortcuts(),
         }
     }
 }
@@ -613,6 +625,64 @@ impl BrowserCore {
     pub fn toggle_game_mode(&mut self) -> bool {
         self.settings.game_mode_enabled = !self.settings.game_mode_enabled;
         self.settings.game_mode_enabled
+    }
+
+    pub fn set_shortcut(&mut self, action_id: &str, combo: &str) -> Result<String, CoreError> {
+        if ShortcutAction::from_id(action_id).is_none() {
+            return Err(CoreError::InvalidIndex(0));
+        }
+        let parsed = KeyCombo::parse(combo).ok_or(CoreError::InvalidIndex(1))?;
+        let canonical = parsed.canonical();
+        // Clear any conflicting action bound to the exact same key combo.
+        for (other_id, bound) in self.settings.shortcuts.iter_mut() {
+            if other_id != action_id && bound.eq_ignore_ascii_case(&canonical) {
+                bound.clear();
+            }
+        }
+        self.settings
+            .shortcuts
+            .insert(action_id.to_string(), canonical.clone());
+        Ok(canonical)
+    }
+
+    pub fn reset_shortcuts(&mut self) {
+        self.settings.shortcuts = default_chrome_shortcuts();
+    }
+
+    pub fn hydrate_shortcuts(&mut self, raw: &BTreeMap<String, String>) {
+        self.settings.shortcuts = merge_with_defaults(raw);
+    }
+
+    pub fn activate_tab_by_index(
+        &mut self,
+        window_id: WindowId,
+        index: usize,
+    ) -> Result<Option<TabId>, CoreError> {
+        let target = {
+            let win = self
+                .windows
+                .get(&window_id)
+                .ok_or(CoreError::WindowNotFound(window_id))?;
+            win.tab_ids.get(index).copied()
+        };
+        if let Some(tid) = target {
+            self.activate_tab(window_id, tid)?;
+        }
+        Ok(target)
+    }
+
+    pub fn activate_last_tab(&mut self, window_id: WindowId) -> Result<Option<TabId>, CoreError> {
+        let target = {
+            let win = self
+                .windows
+                .get(&window_id)
+                .ok_or(CoreError::WindowNotFound(window_id))?;
+            win.tab_ids.last().copied()
+        };
+        if let Some(tid) = target {
+            self.activate_tab(window_id, tid)?;
+        }
+        Ok(target)
     }
 
     pub fn create_tab_group(

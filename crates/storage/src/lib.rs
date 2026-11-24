@@ -3,9 +3,29 @@
 //! Platform-agnostic (no CEF/Win32 dependencies) so it can be shared with
 //! Android in future versions.
 
+pub mod importer;
+
 use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BookmarkItem {
+    pub id: i64,
+    pub title: String,
+    pub url: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryItem {
+    pub id: i64,
+    pub url: String,
+    pub title: String,
+    pub visited_at: i64,
+}
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -91,6 +111,99 @@ impl Storage {
         )?;
         Ok(())
     }
+
+    pub fn insert_bookmarks_dedup(
+        &self,
+        items: &[(String, String)],
+    ) -> Result<usize, StorageError> {
+        let now = unix_now_secs();
+        let mut inserted = 0usize;
+        for (title, url) in items {
+            let exists: bool = self
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE url = ?1)",
+                    [url],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|v| v != 0)?;
+            if !exists {
+                self.conn.execute(
+                    "INSERT INTO bookmarks (parent_id, title, url, position, created_at)
+                     VALUES (NULL, ?1, ?2, 0, ?3)",
+                    rusqlite::params![title, url, now],
+                )?;
+                inserted += 1;
+            }
+        }
+        Ok(inserted)
+    }
+
+    pub fn list_bookmarks(&self, limit: usize) -> Result<Vec<BookmarkItem>, StorageError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title, COALESCE(url, ''), created_at
+             FROM bookmarks
+             WHERE url IS NOT NULL AND url != ''
+             ORDER BY id DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok(BookmarkItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                url: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?;
+        Ok(rows.flatten().collect())
+    }
+
+    pub fn insert_history_dedup(&self, items: &[HistoryItem]) -> Result<usize, StorageError> {
+        let mut inserted = 0usize;
+        for item in items {
+            let exists: bool = self
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM history WHERE url = ?1)",
+                    [&item.url],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|v| v != 0)?;
+            if !exists {
+                self.conn.execute(
+                    "INSERT INTO history (url, title, visited_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![item.url, item.title, item.visited_at],
+                )?;
+                inserted += 1;
+            }
+        }
+        Ok(inserted)
+    }
+
+    pub fn list_history(&self, limit: usize) -> Result<Vec<HistoryItem>, StorageError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, url, title, visited_at
+             FROM history
+             ORDER BY visited_at DESC, id DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok(HistoryItem {
+                id: row.get(0)?,
+                url: row.get(1)?,
+                title: row.get(2)?,
+                visited_at: row.get(3)?,
+            })
+        })?;
+        Ok(rows.flatten().collect())
+    }
+}
+
+fn unix_now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

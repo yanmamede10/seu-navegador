@@ -112,8 +112,8 @@ function toggleMenuOverlay(): void {
   }
   const dpr = window.devicePixelRatio || 1;
   const rect = mountEl.getBoundingClientRect();
-  const widthCss = 276;
-  const heightCss = 330;
+  const widthCss = 286;
+  const heightCss = 385;
   const xCss = Math.max(8, window.innerWidth - widthCss - 10);
   const yCss = rect.height + 4;
   overlayOpen = true;
@@ -126,6 +126,16 @@ function toggleMenuOverlay(): void {
     height: Math.round(heightCss * dpr),
   });
 }
+
+document.addEventListener("mousedown", (ev) => {
+  if (!overlayOpen) return;
+  const target = ev.target as HTMLElement | null;
+  if (target?.closest('[data-seu-action="overlay.toggleMenu"]')) {
+    return;
+  }
+  overlayOpen = false;
+  void callBridge("overlay.close", { window_id: windowId });
+});
 
 function reportShellHeight(): void {
   const dpr = window.devicePixelRatio || 1;
@@ -247,6 +257,14 @@ onBridgeEvent((event) => {
     mountTheme(event.theme);
   } else if (event.type === "overlay" && event.panel === "closed") {
     overlayOpen = false;
+  } else if (event.type === "toggleMenu") {
+    toggleMenuOverlay();
+  } else if (event.type === "focusOmnibox") {
+    const input = mountEl.querySelector<HTMLInputElement>('[data-seu-input="omnibox"]');
+    if (input) {
+      input.focus();
+      input.select();
+    }
   }
 });
 

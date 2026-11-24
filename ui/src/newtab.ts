@@ -23,7 +23,7 @@ interface ShortcutItem {
   url: string;
 }
 
-const shortcuts: ShortcutItem[] = [
+let shortcuts: ShortcutItem[] = [
   { id: "yt", code: "YT", name: "YouTube", url: "https://www.youtube.com" },
   { id: "gh", code: "GH", name: "GitHub", url: "https://github.com" },
   { id: "rs", code: "RS", name: "docs.rs", url: "https://docs.rs" },
@@ -73,6 +73,7 @@ const runtime = new DeclarativeRuntime(mountEl, {
       if (moved) {
         shortcuts.splice(toIndex, 0, moved);
         renderAll();
+        void callBridge("quickShortcuts.set", { items: shortcuts });
       }
     }
   },
@@ -232,6 +233,9 @@ onBridgeEvent((event) => {
     renderAll();
   } else if (event.type === "settings") {
     currentSettings = event.settings;
+    if (event.settings.quick_shortcuts && event.settings.quick_shortcuts.length > 0) {
+      shortcuts = event.settings.quick_shortcuts.map((s) => ({ ...s }));
+    }
     setLocale(event.settings.locale);
     renderAll();
   } else if (event.type === "theme") {
@@ -252,6 +256,9 @@ async function bootstrap(): Promise<void> {
 
     if (settings) {
       currentSettings = settings;
+      if (settings.quick_shortcuts && settings.quick_shortcuts.length > 0) {
+        shortcuts = settings.quick_shortcuts.map((s) => ({ ...s }));
+      }
       setLocale(settings.locale);
     }
     if (themes) {

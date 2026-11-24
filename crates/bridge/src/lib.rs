@@ -5,8 +5,15 @@
 
 use serde::{Deserialize, Serialize};
 use seu_core::{
-    BrowserCore, CoreError, CoreSettings, GroupId, Locale, SearchCategory, SearchEngine, TabId,
-    WindowId, WindowSnapshot,
+    shortcuts::QuickShortcut, BrowserCore, CoreError, CoreSettings, GroupId, Locale,
+    SearchCategory, SearchEngine, TabId, WindowId, WindowSnapshot,
+};
+use seu_storage::{
+    importer::{
+        detect_browser_profiles, run_profile_import, DetectedBrowserProfile, ImportOptions,
+        ImportReport,
+    },
+    BookmarkItem, HistoryItem, Storage,
 };
 use seu_themes::{LoadedTheme, ThemeRegistry, ThemeSummary};
 use thiserror::Error;
@@ -146,6 +153,20 @@ pub enum BridgeRequest {
     ThemesGetActive,
     #[serde(rename = "themes.setActive")]
     ThemesSetActive { id: String },
+
+    #[serde(rename = "shortcuts.set")]
+    ShortcutsSet { action: String, combo: String },
+    #[serde(rename = "shortcuts.reset")]
+    ShortcutsReset,
+    #[serde(rename = "quickShortcuts.set")]
+    QuickShortcutsSet { items: Vec<QuickShortcut> },
+
+    #[serde(rename = "import.listProfiles")]
+    ImportListProfiles,
+    #[serde(rename = "import.run")]
+    ImportRun(ImportOptions),
+    #[serde(rename = "data.summary")]
+    DataSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -153,15 +174,38 @@ pub enum BridgeRequest {
 pub enum BridgeResponse {
     Ok,
     WindowSnapshot(WindowSnapshot),
-    WindowCreated { window_id: WindowId, tab_id: TabId },
-    TabCreated { tab_id: TabId, url: String },
-    TabNavigated { tab_id: TabId, url: String },
-    TabPinned { tab_id: TabId, pinned: bool },
-    GroupCreated { group_id: GroupId },
-    GroupCollapsed { group_id: GroupId, collapsed: bool },
+    WindowCreated {
+        window_id: WindowId,
+        tab_id: TabId,
+    },
+    TabCreated {
+        tab_id: TabId,
+        url: String,
+    },
+    TabNavigated {
+        tab_id: TabId,
+        url: String,
+    },
+    TabPinned {
+        tab_id: TabId,
+        pinned: bool,
+    },
+    GroupCreated {
+        group_id: GroupId,
+    },
+    GroupCollapsed {
+        group_id: GroupId,
+        collapsed: bool,
+    },
     Settings(CoreSettings),
     ThemesList(Vec<ThemeSummary>),
     ThemeActive(Box<LoadedTheme>),
+    ImportProfiles(Vec<DetectedBrowserProfile>),
+    ImportCompleted(ImportReport),
+    DataSummary {
+        bookmarks: Vec<BookmarkItem>,
+        history: Vec<HistoryItem>,
+    },
 }
 
 /// Side-effect commands that the engine/window layer must execute after
@@ -210,11 +254,22 @@ pub enum HostEffect {
     ReloadTabView {
         tab_id: TabId,
     },
+    HardReloadTabView {
+        tab_id: TabId,
+    },
     GoBackTabView {
         tab_id: TabId,
     },
     GoForwardTabView {
         tab_id: TabId,
+    },
+    FocusOmnibox {
+        window_id: WindowId,
+    },
+    ZoomTabView {
+        tab_id: TabId,
+        /// `+1` zoom in, `-1` zoom out, `0` reset to 100%.
+        delta_steps: i32,
     },
     OpenOverlay {
         window_id: WindowId,
@@ -246,6 +301,7 @@ pub fn handle_raw_request(
     raw_json: &str,
     core: &mut BrowserCore,
     themes: &ThemeRegistry,
+    storage: Option<&Storage>,
 ) -> Result<DispatchOutput, BridgeError> {
     if !is_privileged_origin(origin_url) {
         return Err(BridgeError::OriginDenied);
@@ -256,13 +312,14 @@ pub fn handle_raw_request(
 
     let req: BridgeRequest =
         serde_json::from_str(raw_json).map_err(|e| BridgeError::InvalidJson(e.to_string()))?;
-    dispatch_request(req, core, themes)
+    dispatch_request(req, core, themes, storage)
 }
 
 pub fn dispatch_request(
     req: BridgeRequest,
     core: &mut BrowserCore,
     themes: &ThemeRegistry,
+    storage: Option<&Storage>,
 ) -> Result<DispatchOutput, BridgeError> {
     match req {
         BridgeRequest::WindowGetSnapshot { window_id } => {
@@ -684,6 +741,90 @@ pub fn dispatch_request(
                 effects: vec![HostEffect::BroadcastTheme, HostEffect::BroadcastSettings],
             })
         }
+        BridgeRequest::ShortcutsSet { action, combo } => {
+            core.set_shortcut(&action, &combo).map_err(|_| {
+                BridgeError::InvalidArgument(format!("invalid shortcut '{combo}' for '{action}'"))
+            })?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::ShortcutsReset => {
+            core.reset_shortcuts();
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::QuickShortcutsSet { items } => {
+            let cleaned: Vec<QuickShortcut> = items
+                .into_iter()
+                .filter(|item| {
+                    let u = item.url.trim();
+                    (u.starts_with("https://") || u.starts_with("http://"))
+                        && !item.name.trim().is_empty()
+                })
+                .take(12)
+                .collect();
+            core.settings.quick_shortcuts = cleaned;
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::ImportListProfiles => Ok(DispatchOutput {
+            response: BridgeResponse::ImportProfiles(detect_browser_profiles()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::ImportRun(options) => {
+            let Some(db) = storage else {
+                return Err(BridgeError::InvalidArgument(
+                    "local database unavailable".into(),
+                ));
+            };
+            let profiles = detect_browser_profiles();
+            let Some(profile) = profiles.into_iter().find(|p| p.id == options.profile_id) else {
+                return Err(BridgeError::InvalidArgument(format!(
+                    "browser profile not found: {}",
+                    options.profile_id
+                )));
+            };
+            let report = run_profile_import(db, &profile, &options)
+                .map_err(|e| BridgeError::InvalidArgument(format!("import failed: {e}")))?;
+
+            let mut effects = Vec::new();
+            if options.import_quick_shortcuts && !report.quick_shortcuts.is_empty() {
+                core.settings.quick_shortcuts = report
+                    .quick_shortcuts
+                    .iter()
+                    .map(|s| QuickShortcut {
+                        id: s.id.clone(),
+                        code: s.code.clone(),
+                        name: s.name.clone(),
+                        url: s.url.clone(),
+                    })
+                    .collect();
+                effects.push(HostEffect::BroadcastSettings);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::ImportCompleted(report),
+                effects,
+            })
+        }
+        BridgeRequest::DataSummary => {
+            let (bookmarks, history) = match storage {
+                Some(db) => (
+                    db.list_bookmarks(80).unwrap_or_default(),
+                    db.list_history(80).unwrap_or_default(),
+                ),
+                None => (Vec::new(), Vec::new()),
+            };
+            Ok(DispatchOutput {
+                response: BridgeResponse::DataSummary { bookmarks, history },
+                effects: Vec::new(),
+            })
+        }
     }
 }
 
@@ -707,6 +848,7 @@ mod tests {
             r#"{"method":"settings.get"}"#,
             &mut core,
             &themes,
+            None,
         )
         .err();
         assert_eq!(err, Some(BridgeError::OriginDenied));
@@ -721,7 +863,7 @@ mod tests {
         let payload = format!(
             r#"{{"method":"tabs.create","params":{{"window_id":{win_id},"url":"docs.rs"}}}}"#
         );
-        let out = handle_raw_request("seu://shell/", &payload, &mut core, &themes);
+        let out = handle_raw_request("seu://shell/", &payload, &mut core, &themes, None);
         assert!(out.is_ok());
         if let Ok(output) = out {
             assert!(matches!(
@@ -736,11 +878,25 @@ mod tests {
             r#"{"method":"themes.getActive"}"#,
             &mut core,
             &themes,
+            None,
         );
         assert!(matches!(
             theme_out.map(|o| o.response),
             Ok(BridgeResponse::ThemeActive(ref t)) if t.manifest.id == "y2k-maximal"
         ));
+
+        let rebind = handle_raw_request(
+            "seu://settings/",
+            r#"{"method":"shortcuts.set","params":{"action":"tab.new","combo":"Ctrl+Q"}}"#,
+            &mut core,
+            &themes,
+            None,
+        );
+        assert!(rebind.is_ok());
+        assert_eq!(
+            core.settings.shortcuts.get("tab.new").map(String::as_str),
+            Some("Ctrl+Q")
+        );
     }
 
     #[test]
@@ -748,7 +904,7 @@ mod tests {
         let mut core = BrowserCore::new();
         let themes = test_registry();
         assert!(matches!(
-            handle_raw_request("seu://shell/", "{not-json", &mut core, &themes),
+            handle_raw_request("seu://shell/", "{not-json", &mut core, &themes, None),
             Err(BridgeError::InvalidJson(_))
         ));
         assert!(matches!(
@@ -756,7 +912,8 @@ mod tests {
                 "seu://shell/",
                 r#"{"method":"settings.setLocale","params":{"locale":"xx-YY"}}"#,
                 &mut core,
-                &themes
+                &themes,
+                None
             ),
             Err(BridgeError::InvalidArgument(_))
         ));

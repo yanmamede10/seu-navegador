@@ -11,6 +11,7 @@ export default defineConfig({
         shell: resolve(__dirname, "shell.html"),
         overlay: resolve(__dirname, "overlay.html"),
         newtab: resolve(__dirname, "newtab.html"),
+        settings: resolve(__dirname, "settings.html"),
       },
     },
   },

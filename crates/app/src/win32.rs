@@ -240,6 +240,16 @@ impl NativeWindowHost for Win32WindowHost {
                 if let Err(err) = db.set_setting("game_mode_enabled", gm) {
                     warn!("Failed to persist game_mode_enabled setting: {err}");
                 }
+                if let Ok(json) = serde_json::to_string(&settings.shortcuts) {
+                    if let Err(err) = db.set_setting("shortcuts", &json) {
+                        warn!("Failed to persist shortcuts setting: {err}");
+                    }
+                }
+                if let Ok(json) = serde_json::to_string(&settings.quick_shortcuts) {
+                    if let Err(err) = db.set_setting("quick_shortcuts", &json) {
+                        warn!("Failed to persist quick_shortcuts setting: {err}");
+                    }
+                }
             }
         }
     }
@@ -271,6 +281,22 @@ pub fn load_persisted_settings(storage: &Option<Storage>) -> CoreSettings {
     }
     if let Ok(Some(gm)) = db.get_setting("game_mode_enabled") {
         settings.game_mode_enabled = gm == "1";
+    }
+    if let Ok(Some(raw_shortcuts)) = db.get_setting("shortcuts") {
+        if let Ok(parsed) =
+            serde_json::from_str::<std::collections::BTreeMap<String, String>>(&raw_shortcuts)
+        {
+            settings.shortcuts = seu_core::shortcuts::merge_with_defaults(&parsed);
+        }
+    }
+    if let Ok(Some(raw_quick)) = db.get_setting("quick_shortcuts") {
+        if let Ok(parsed) =
+            serde_json::from_str::<Vec<seu_core::shortcuts::QuickShortcut>>(&raw_quick)
+        {
+            if !parsed.is_empty() {
+                settings.quick_shortcuts = parsed;
+            }
+        }
     }
 
     settings

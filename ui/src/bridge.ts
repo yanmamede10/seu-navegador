@@ -28,11 +28,56 @@ export interface WindowSnapshot {
   groups: TabGroup[];
 }
 
+export interface QuickShortcut {
+  id: string;
+  code: string;
+  name: string;
+  url: string;
+}
+
 export interface CoreSettings {
   locale: "pt-br" | "en";
   search_engine: "duck-duck-go" | "google" | "brave" | "startpage";
   active_theme_id: string;
   game_mode_enabled: boolean;
+  shortcuts?: Record<string, string>;
+  quick_shortcuts?: QuickShortcut[];
+}
+
+export interface DetectedBrowserProfile {
+  id: string;
+  browser_name: string;
+  profile_name: string;
+  family: "chromium" | "firefox";
+  has_bookmarks: boolean;
+  has_history: boolean;
+}
+
+export interface ImportReport {
+  browser_name: string;
+  profile_name: string;
+  bookmarks_imported: number;
+  history_imported: number;
+  quick_shortcuts: QuickShortcut[];
+}
+
+export interface BookmarkItem {
+  id: number;
+  title: string;
+  url: string;
+  created_at: number;
+}
+
+export interface HistoryItem {
+  id: number;
+  url: string;
+  title: string;
+  visited_at: number;
+}
+
+export interface DataSummaryPayload {
+  bookmarks: BookmarkItem[];
+  history: HistoryItem[];
 }
 
 export interface ThemeSummary {
@@ -65,7 +110,9 @@ export type BridgeEvent =
   | { type: "state"; snapshot: WindowSnapshot }
   | { type: "settings"; settings: CoreSettings }
   | { type: "theme"; theme: LoadedTheme }
-  | { type: "overlay"; panel: string };
+  | { type: "overlay"; panel: string }
+  | { type: "focusOmnibox" }
+  | { type: "toggleMenu" };
 
 declare global {
   interface Window {

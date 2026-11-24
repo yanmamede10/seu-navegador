@@ -30,15 +30,16 @@ fn main() {
         }
     };
     let initial_settings = win32::load_persisted_settings(&storage);
+    let shared_storage = Arc::new(Mutex::new(storage));
 
-    let host = Arc::new(win32::Win32WindowHost::new(Arc::new(Mutex::new(storage))));
+    let host = Arc::new(win32::Win32WindowHost::new(shared_storage.clone()));
     let config = EngineConfig {
         root_cache_path: base_dir.join("profile"),
         user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36".to_string(),
         enable_sandbox: false,
     };
 
-    if let Err(err) = CefEngine::run(config, initial_settings, host) {
+    if let Err(err) = CefEngine::run(config, initial_settings, host, shared_storage) {
         error!("Fatal engine error: {err}");
         std::process::exit(1);
     }

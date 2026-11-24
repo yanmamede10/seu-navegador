@@ -12,6 +12,7 @@ import { getLocale, setLocale, t } from "./i18n";
 const windowId = getWindowIdFromQuery();
 const menuList = document.getElementById("menu-list") as HTMLDivElement;
 
+let openedAt = 0;
 let currentSettings: CoreSettings = {
   locale: "pt-br",
   search_engine: "duck-duck-go",
@@ -85,6 +86,20 @@ function renderMenu(): void {
 
   addActionButton("fa-solid fa-rotate-left", t("menu.reopenClosed"), () => {
     void callBridge("tabs.reopenClosed", { window_id: windowId });
+  });
+
+  addActionButton("fa-solid fa-sliders", t("menu.settings"), () => {
+    void (async () => {
+      const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
+        window_id: windowId,
+      });
+      if (snap?.active_tab_id) {
+        await callBridge("tabs.navigate", {
+          tab_id: snap.active_tab_id,
+          input: "seu://settings/",
+        });
+      }
+    })();
   });
 
   const sep = document.createElement("div");
@@ -164,8 +179,16 @@ window.addEventListener("keydown", (ev) => {
   }
 });
 
+window.addEventListener("blur", () => {
+  if (Date.now() - openedAt > 180) {
+    closeOverlay();
+  }
+});
+
 onBridgeEvent((event) => {
-  if (event.type === "settings") {
+  if (event.type === "overlay" && event.panel !== "closed") {
+    openedAt = Date.now();
+  } else if (event.type === "settings") {
     currentSettings = event.settings;
     setLocale(event.settings.locale);
     renderMenu();

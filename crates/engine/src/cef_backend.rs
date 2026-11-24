@@ -16,10 +16,15 @@ use cef::{
     *,
 };
 use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
-use seu_core::{BrowserCore, CoreSettings, TabId, WindowId, WindowSnapshot};
+use seu_core::{
+    shortcuts::{match_shortcut_vk, ShortcutAction},
+    BrowserCore, CoreSettings, TabId, WindowId, WindowSnapshot,
+};
+use seu_storage::Storage;
 use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -27,11 +32,23 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SW_HIDE, SW_SHOW,
 };
 
+const CEF_EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
+const CEF_EVENTFLAG_CONTROL_DOWN: u32 = 1 << 2;
+const CEF_EVENTFLAG_ALT_DOWN: u32 = 1 << 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewKind {
     Shell(WindowId),
     Overlay(WindowId),
     Tab { window_id: WindowId, tab_id: TabId },
+}
+
+impl ViewKind {
+    fn window_id(self) -> WindowId {
+        match self {
+            Self::Shell(w) | Self::Overlay(w) | Self::Tab { window_id: w, .. } => w,
+        }
+    }
 }
 
 /// Host window operations supplied by `crates/app` (Win32 frameless windows).
@@ -54,6 +71,7 @@ struct WindowViews {
     overlay: Option<Browser>,
     shell_height: i32,
     overlay_open: bool,
+    overlay_opened_at: Instant,
     overlay_bounds: RectPx,
     incognito: bool,
 }
@@ -61,6 +79,7 @@ struct WindowViews {
 struct SharedState {
     core: BrowserCore,
     themes: ThemeRegistry,
+    storage: Arc<Mutex<Option<Storage>>>,
     host: Arc<dyn NativeWindowHost>,
     router: Arc<BrowserSideRouter>,
     windows: HashMap<WindowId, WindowViews>,
@@ -100,6 +119,7 @@ impl CefEngine {
         config: EngineConfig,
         initial_settings: CoreSettings,
         host: Arc<dyn NativeWindowHost>,
+        storage: Arc<Mutex<Option<Storage>>>,
     ) -> Result<(), EngineError> {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
         let args = cef::args::Args::new();
@@ -113,6 +133,7 @@ impl CefEngine {
         let shared = Arc::new(Mutex::new(SharedState {
             core,
             themes,
+            storage,
             host,
             router: router.clone(),
             windows: HashMap::new(),
@@ -226,6 +247,8 @@ impl BrowserBackend for CefEngine {
         };
         let target_url = if url == seu_core::NEWTAB_URL {
             format!("seu://newtab/?win={window_id}")
+        } else if url == "seu://settings" || url == "seu://settings/" {
+            format!("seu://settings/?win={window_id}")
         } else {
             url.to_string()
         };
@@ -247,6 +270,9 @@ impl BrowserBackend for CefEngine {
             let target = if url == seu_core::NEWTAB_URL {
                 let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
                 format!("seu://newtab/?win={win_id}")
+            } else if url == "seu://settings" || url == "seu://settings/" {
+                let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
+                format!("seu://settings/?win={win_id}")
             } else {
                 url.to_string()
             };
@@ -343,12 +369,14 @@ impl BrowserBackend for CefEngine {
         let overlay = self.state.lock().ok().and_then(|mut g| {
             let win = g.windows.get_mut(&window_id)?;
             win.overlay_open = true;
+            win.overlay_opened_at = Instant::now();
             win.overlay_bounds = bounds;
             win.overlay.clone()
         });
         if let Some(b) = overlay {
             if let Some(host) = b.host() {
                 apply_child_hwnd_visibility(host.window_handle(), true, Some(bounds), true);
+                host.set_focus(1);
             }
             push_js_event(
                 &b,
@@ -703,6 +731,7 @@ fn create_full_browser_window(
                 overlay: None,
                 shell_height: default_shell_height,
                 overlay_open: false,
+                overlay_opened_at: Instant::now(),
                 overlay_bounds: RectPx {
                     x: 10,
                     y: default_shell_height + 4,
@@ -878,8 +907,48 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::CloseTabView { tab_id, .. } => engine.close_tab_view(tab_id),
             HostEffect::NavigateTabView { tab_id, url } => engine.navigate_tab(tab_id, &url),
             HostEffect::ReloadTabView { tab_id } => engine.reload_tab(tab_id),
+            HostEffect::HardReloadTabView { tab_id } => {
+                let browser = state
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.tab_browsers.get(&tab_id).cloned());
+                if let Some(b) = browser {
+                    b.reload_ignore_cache();
+                }
+            }
             HostEffect::GoBackTabView { tab_id } => engine.go_back(tab_id),
             HostEffect::GoForwardTabView { tab_id } => engine.go_forward(tab_id),
+            HostEffect::FocusOmnibox { window_id } => {
+                let shell = state
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.windows.get(&window_id).and_then(|w| w.shell.clone()));
+                if let Some(s) = shell {
+                    if let Some(h) = s.host() {
+                        h.set_focus(1);
+                    }
+                    push_js_event(&s, &serde_json::json!({ "type": "focusOmnibox" }));
+                }
+            }
+            HostEffect::ZoomTabView {
+                tab_id,
+                delta_steps,
+            } => {
+                let browser = state
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.tab_browsers.get(&tab_id).cloned());
+                if let Some(b) = browser {
+                    if let Some(h) = b.host() {
+                        let next_zoom = if delta_steps == 0 {
+                            0.0
+                        } else {
+                            (h.zoom_level() + f64::from(delta_steps) * 0.5).clamp(-3.0, 5.0)
+                        };
+                        h.set_zoom_level(next_zoom);
+                    }
+                }
+            }
             HostEffect::OpenOverlay {
                 window_id,
                 panel,
@@ -932,8 +1001,15 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                 }
                 return true;
             };
-            let SharedState { core, themes, .. } = &mut *guard;
-            handle_raw_request(&origin_url, request, core, themes)
+            let SharedState {
+                core,
+                themes,
+                storage,
+                ..
+            } = &mut *guard;
+            let storage_guard = storage.lock().ok();
+            let db_ref = storage_guard.as_ref().and_then(|g| g.as_ref());
+            handle_raw_request(&origin_url, request, core, themes, db_ref)
         };
 
         match result {
@@ -1180,6 +1256,14 @@ wrap_client! {
             Some(SeuRequestHandler::new(self.state.clone(), self.kind))
         }
 
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            Some(SeuFocusHandler::new(self.state.clone(), self.kind))
+        }
+
+        fn keyboard_handler(&self) -> Option<KeyboardHandler> {
+            Some(SeuKeyboardHandler::new(self.state.clone(), self.kind))
+        }
+
         fn on_process_message_received(
             &self,
             browser: Option<&mut Browser>,
@@ -1240,6 +1324,8 @@ wrap_display_handler! {
             let raw_url = url.map(|u| u.to_string()).unwrap_or_default();
             let display_url = if raw_url.starts_with("seu://newtab/") {
                 seu_core::NEWTAB_URL.to_string()
+            } else if raw_url.starts_with("seu://settings/") {
+                "seu://settings/".to_string()
             } else {
                 raw_url
             };
@@ -1525,6 +1611,405 @@ wrap_task! {
                     SetParent(hwnd, std::ptr::null_mut());
                     DestroyWindow(hwnd);
                 }
+            }
+        }
+    }
+}
+
+wrap_focus_handler! {
+    struct SeuFocusHandler {
+        state: Arc<Mutex<SharedState>>,
+        kind: ViewKind,
+    }
+
+    impl FocusHandler {
+        fn on_got_focus(&self, _browser: Option<&mut Browser>) {
+            // Clicking back into the Shell or active Tab dismisses any open Overlay menu.
+            if matches!(self.kind, ViewKind::Overlay(_)) {
+                return;
+            }
+            let wid = self.kind.window_id();
+            let should_close = self
+                .state
+                .lock()
+                .ok()
+                .and_then(|g| g.windows.get(&wid).map(|w| (w.overlay_open, w.overlay_opened_at)))
+                .map(|(open, at)| open && at.elapsed() >= Duration::from_millis(180))
+                .unwrap_or(false);
+            if should_close {
+                let mut task = CloseOverlayTask::new(self.state.clone(), wid);
+                post_task(ThreadId::UI, Some(&mut task));
+            }
+        }
+    }
+}
+
+wrap_keyboard_handler! {
+    struct SeuKeyboardHandler {
+        state: Arc<Mutex<SharedState>>,
+        kind: ViewKind,
+    }
+
+    impl KeyboardHandler {
+        fn on_pre_key_event(
+            &self,
+            browser: Option<&mut Browser>,
+            event: Option<&KeyEvent>,
+            _os_event: Option<&mut sys::MSG>,
+            _is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            let Some(ev) = event else {
+                return 0;
+            };
+            if ev.type_ != KeyEventType::RAWKEYDOWN {
+                return 0;
+            }
+
+            let wid = self.kind.window_id();
+
+            // Escape closes open overlay menus from any view.
+            if ev.windows_key_code == 0x1B {
+                let overlay_open = self
+                    .state
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.windows.get(&wid).map(|w| w.overlay_open))
+                    .unwrap_or(false);
+                if overlay_open {
+                    let mut task = CloseOverlayTask::new(self.state.clone(), wid);
+                    post_task(ThreadId::UI, Some(&mut task));
+                    return 1;
+                }
+            }
+
+            // Allow `seu://settings/` to record custom key combinations without triggering
+            // the currently bound action mid-recording.
+            if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                let url = CefString::from(&frame.url()).to_string();
+                if url.starts_with("seu://settings/") {
+                    return 0;
+                }
+            }
+
+            let ctrl = (ev.modifiers & CEF_EVENTFLAG_CONTROL_DOWN) != 0;
+            let shift = (ev.modifiers & CEF_EVENTFLAG_SHIFT_DOWN) != 0;
+            let alt = (ev.modifiers & CEF_EVENTFLAG_ALT_DOWN) != 0;
+
+            let matched = self.state.lock().ok().and_then(|g| {
+                match_shortcut_vk(
+                    &g.core.settings.shortcuts,
+                    ev.windows_key_code,
+                    ctrl,
+                    shift,
+                    alt,
+                )
+            });
+
+            if let Some(action) = matched {
+                let mut task = ExecuteShortcutTask::new(self.state.clone(), wid, action);
+                post_task(ThreadId::UI, Some(&mut task));
+                return 1;
+            }
+
+            0
+        }
+    }
+}
+
+wrap_task! {
+    struct CloseOverlayTask {
+        state: Arc<Mutex<SharedState>>,
+        window_id: WindowId,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let engine = CefEngine {
+                state: self.state.clone(),
+            };
+            engine.hide_overlay(self.window_id);
+        }
+    }
+}
+
+wrap_task! {
+    struct ExecuteShortcutTask {
+        state: Arc<Mutex<SharedState>>,
+        window_id: WindowId,
+        action: ShortcutAction,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            if self.action == ShortcutAction::ToggleMenu {
+                let shell = self
+                    .state
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.windows.get(&self.window_id).and_then(|w| w.shell.clone()));
+                if let Some(s) = shell {
+                    push_js_event(&s, &serde_json::json!({ "type": "toggleMenu" }));
+                }
+                return;
+            }
+
+            let effects = {
+                let Ok(mut guard) = self.state.lock() else {
+                    return;
+                };
+                let active_tab = guard
+                    .core
+                    .window_snapshot(self.window_id)
+                    .ok()
+                    .and_then(|s| s.active_tab_id);
+
+                match self.action {
+                    ShortcutAction::NewTab => {
+                        match guard.core.create_tab(self.window_id, None, true) {
+                            Ok(tid) => vec![
+                                HostEffect::CreateTabView {
+                                    window_id: self.window_id,
+                                    tab_id: tid,
+                                    url: seu_core::NEWTAB_URL.to_string(),
+                                },
+                                HostEffect::ActivateTabView {
+                                    window_id: self.window_id,
+                                    tab_id: tid,
+                                },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            Err(_) => Vec::new(),
+                        }
+                    }
+                    ShortcutAction::CloseTab => match active_tab {
+                        Some(tid) => match guard.core.close_tab(tid) {
+                            Ok((wid, next_active)) => {
+                                let mut out = vec![HostEffect::CloseTabView {
+                                    window_id: wid,
+                                    tab_id: tid,
+                                }];
+                                if let Some(next_id) = next_active {
+                                    out.push(HostEffect::ActivateTabView {
+                                        window_id: wid,
+                                        tab_id: next_id,
+                                    });
+                                    out.push(HostEffect::BroadcastState { window_id: wid });
+                                } else {
+                                    out.push(HostEffect::CloseWindow { window_id: wid });
+                                }
+                                out
+                            }
+                            Err(_) => Vec::new(),
+                        },
+                        None => Vec::new(),
+                    },
+                    ShortcutAction::ReopenClosedTab => {
+                        match guard.core.reopen_closed_tab(self.window_id) {
+                            Ok(Some(tid)) => {
+                                let url = guard
+                                    .core
+                                    .get_tab(tid)
+                                    .map(|t| t.url.clone())
+                                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                                vec![
+                                    HostEffect::CreateTabView {
+                                        window_id: self.window_id,
+                                        tab_id: tid,
+                                        url,
+                                    },
+                                    HostEffect::ActivateTabView {
+                                        window_id: self.window_id,
+                                        tab_id: tid,
+                                    },
+                                    HostEffect::BroadcastState {
+                                        window_id: self.window_id,
+                                    },
+                                ]
+                            }
+                            _ => Vec::new(),
+                        }
+                    }
+                    ShortcutAction::NextTab => match guard.core.cycle_tab(self.window_id, true) {
+                        Ok(Some(tid)) => vec![
+                            HostEffect::ActivateTabView {
+                                window_id: self.window_id,
+                                tab_id: tid,
+                            },
+                            HostEffect::BroadcastState {
+                                window_id: self.window_id,
+                            },
+                        ],
+                        _ => Vec::new(),
+                    },
+                    ShortcutAction::PrevTab => match guard.core.cycle_tab(self.window_id, false) {
+                        Ok(Some(tid)) => vec![
+                            HostEffect::ActivateTabView {
+                                window_id: self.window_id,
+                                tab_id: tid,
+                            },
+                            HostEffect::BroadcastState {
+                                window_id: self.window_id,
+                            },
+                        ],
+                        _ => Vec::new(),
+                    },
+                    ShortcutAction::Reload => active_tab
+                        .map(|tab_id| vec![HostEffect::ReloadTabView { tab_id }])
+                        .unwrap_or_default(),
+                    ShortcutAction::HardReload => active_tab
+                        .map(|tab_id| vec![HostEffect::HardReloadTabView { tab_id }])
+                        .unwrap_or_default(),
+                    ShortcutAction::Back => active_tab
+                        .map(|tab_id| vec![HostEffect::GoBackTabView { tab_id }])
+                        .unwrap_or_default(),
+                    ShortcutAction::Forward => active_tab
+                        .map(|tab_id| vec![HostEffect::GoForwardTabView { tab_id }])
+                        .unwrap_or_default(),
+                    ShortcutAction::FocusOmnibox => vec![HostEffect::FocusOmnibox {
+                        window_id: self.window_id,
+                    }],
+                    ShortcutAction::NewWindow => {
+                        let (wid, tid) = guard.core.create_window(false, None);
+                        vec![HostEffect::CreateNativeWindow {
+                            window_id: wid,
+                            incognito: false,
+                            initial_tab_id: tid,
+                            initial_url: seu_core::NEWTAB_URL.to_string(),
+                        }]
+                    }
+                    ShortcutAction::NewIncognitoWindow => {
+                        let (wid, tid) = guard.core.create_window(true, None);
+                        vec![HostEffect::CreateNativeWindow {
+                            window_id: wid,
+                            incognito: true,
+                            initial_tab_id: tid,
+                            initial_url: seu_core::NEWTAB_URL.to_string(),
+                        }]
+                    }
+                    ShortcutAction::PinTab => match active_tab {
+                        Some(tid) if guard.core.toggle_pin_tab(tid).is_ok() => {
+                            vec![HostEffect::BroadcastState {
+                                window_id: self.window_id,
+                            }]
+                        }
+                        _ => Vec::new(),
+                    },
+                    ShortcutAction::DuplicateTab => match active_tab {
+                        Some(tid) => match guard.core.duplicate_tab(tid) {
+                            Ok(new_id) => {
+                                let url = guard
+                                    .core
+                                    .get_tab(new_id)
+                                    .map(|t| t.url.clone())
+                                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                                vec![
+                                    HostEffect::CreateTabView {
+                                        window_id: self.window_id,
+                                        tab_id: new_id,
+                                        url,
+                                    },
+                                    HostEffect::ActivateTabView {
+                                        window_id: self.window_id,
+                                        tab_id: new_id,
+                                    },
+                                    HostEffect::BroadcastState {
+                                        window_id: self.window_id,
+                                    },
+                                ]
+                            }
+                            Err(_) => Vec::new(),
+                        },
+                        None => Vec::new(),
+                    },
+                    ShortcutAction::OpenSettings => match active_tab {
+                        Some(tid) => match guard.core.navigate_tab(tid, "seu://settings/") {
+                            Ok(url) => vec![
+                                HostEffect::NavigateTabView { tab_id: tid, url },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            Err(_) => Vec::new(),
+                        },
+                        None => Vec::new(),
+                    },
+                    ShortcutAction::ZoomIn => active_tab
+                        .map(|tab_id| {
+                            vec![HostEffect::ZoomTabView {
+                                tab_id,
+                                delta_steps: 1,
+                            }]
+                        })
+                        .unwrap_or_default(),
+                    ShortcutAction::ZoomOut => active_tab
+                        .map(|tab_id| {
+                            vec![HostEffect::ZoomTabView {
+                                tab_id,
+                                delta_steps: -1,
+                            }]
+                        })
+                        .unwrap_or_default(),
+                    ShortcutAction::ZoomReset => active_tab
+                        .map(|tab_id| {
+                            vec![HostEffect::ZoomTabView {
+                                tab_id,
+                                delta_steps: 0,
+                            }]
+                        })
+                        .unwrap_or_default(),
+                    ShortcutAction::SwitchTab1
+                    | ShortcutAction::SwitchTab2
+                    | ShortcutAction::SwitchTab3
+                    | ShortcutAction::SwitchTab4
+                    | ShortcutAction::SwitchTab5
+                    | ShortcutAction::SwitchTab6
+                    | ShortcutAction::SwitchTab7
+                    | ShortcutAction::SwitchTab8 => {
+                        let idx = match self.action {
+                            ShortcutAction::SwitchTab1 => 0,
+                            ShortcutAction::SwitchTab2 => 1,
+                            ShortcutAction::SwitchTab3 => 2,
+                            ShortcutAction::SwitchTab4 => 3,
+                            ShortcutAction::SwitchTab5 => 4,
+                            ShortcutAction::SwitchTab6 => 5,
+                            ShortcutAction::SwitchTab7 => 6,
+                            _ => 7,
+                        };
+                        match guard.core.activate_tab_by_index(self.window_id, idx) {
+                            Ok(Some(tid)) => vec![
+                                HostEffect::ActivateTabView {
+                                    window_id: self.window_id,
+                                    tab_id: tid,
+                                },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            _ => Vec::new(),
+                        }
+                    }
+                    ShortcutAction::SwitchTabLast => {
+                        match guard.core.activate_last_tab(self.window_id) {
+                            Ok(Some(tid)) => vec![
+                                HostEffect::ActivateTabView {
+                                    window_id: self.window_id,
+                                    tab_id: tid,
+                                },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            _ => Vec::new(),
+                        }
+                    }
+                    ShortcutAction::ToggleMenu => Vec::new(),
+                }
+            };
+
+            if !effects.is_empty() {
+                execute_effects(&self.state, effects);
             }
         }
     }
