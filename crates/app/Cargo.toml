@@ -9,7 +9,6 @@ name = "seu-navegador"
 path = "src/main.rs"
 
 [dependencies]
-seu-bridge = { path = "../bridge" }
 seu-core = { path = "../core" }
 seu-engine = { path = "../engine" }
 seu-storage = { path = "../storage" }

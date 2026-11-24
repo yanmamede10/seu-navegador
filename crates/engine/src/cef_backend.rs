@@ -401,7 +401,7 @@ fn spawn_child_browser(
         width: bounds.width.max(1),
         height: bounds.height.max(1),
     };
-    let parent_hwnd = parent.0 as sys::cef_window_handle_t;
+    let parent_hwnd = sys::HWND((parent.0 as *mut std::ffi::c_void).cast());
     let window_info = WindowInfo {
         runtime_style: RuntimeStyle::ALLOY,
         ..Default::default()
@@ -435,7 +435,7 @@ fn apply_child_hwnd_visibility(
     bounds: Option<RectPx>,
     bring_to_top: bool,
 ) {
-    let hwnd = raw_hwnd as HWND;
+    let hwnd: HWND = raw_hwnd.0.cast();
     if hwnd.is_null() {
         return;
     }

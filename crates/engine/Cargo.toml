@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 include_dir.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 seu-bridge = { path = "../bridge" }
 seu-core = { path = "../core" }
