@@ -1,0 +1,41 @@
+# ADR 001: Toolchain Windows, CEF Runtime e Estratégia de Build
+
+- **Status:** Aceito (Fase 0 — pendente validação prática no primeiro build do Spike)
+- **Data:** 2026-11-23
+- **Decisores:** Yan
+
+## Contexto
+O **Seu Navegador** usa Rust + **Chromium Embedded Framework (CEF)** via crate `cef` (`tauri-apps/cef-rs`) no Windows x64.
+
+Restrições do projeto:
+1. **Zero ferramentas da Microsoft no PC de desenvolvimento local** (o PC local tem `rustc 1.100.0`, `cargo`, `git`, `node` e `npm`, sem Visual Studio / Build Tools / CMake / Windows SDK).
+2. **Zero runtimes da Microsoft no PC do usuário final** (sem WebView2, Edge, .NET runtime, MSIX ou necessidade de instalar Visual C++ Redistributable).
+3. As distribuições oficiais do CEF para Windows são compiladas com ABI **MSVC**, e o crate `cef-dll-sys` exige CMake + compilador C++ compatível com MSVC para compilar `libcef_dll_wrapper` e linkar contra `libcef.lib`. O target `x86_64-pc-windows-gnu` não possui suporte oficial no `cef-rs`.
+
+## Opções avaliadas
+
+| Opção | Descrição | Prós | Contras |
+|---|---|---|---|
+| **A (Escolhida)** | **GitHub Actions (`windows-latest`)** compila o binário Rust+CEF na nuvem; UI/TS e código Rust puro são desenvolvidos localmente | Zero ferramentas Microsoft no PC local; CI/CD pronto desde o dia 1; facilita testar sandbox CEF e release portátil | Ciclo de teste do executável CEF exige push/dispatch e download do artefato (~minutos) |
+| **B** | `LLVM/Clang` + `CMake` + `cargo-xwin` localmente | Compila local sem instalador do Visual Studio | Atrito de configuração com `cef-dll-sys`/CMake no Windows nativo |
+| **C** | Visual Studio Build Tools C++ mínimo + CMake local | Iteração local mais rápida | Instala ferramentas da Microsoft na máquina de dev |
+
+## Decisão
+1. **Build de Rust + CEF via GitHub Actions (`windows-latest`):**
+   - O workflow usa `export-cef-dir` com cache (`actions/cache`) para evitar downloads repetidos do CEF.
+   - Gera um artefato `.zip` portátil pronto para extrair e executar no Windows do desenvolvedor e do usuário final.
+2. **Iteração rápida local para UI e lógica pura:**
+   - A UI (`ui/` + os 9 temas) será desenvolvida e testada localmente com **Vite** em tempo real (`node`/`npm` já instalados).
+   - Crates sem dependência de CEF/Win32 (`core`, `storage`, validação de `themes`) permanecem isolados e prontos inclusive para o target futuro `aarch64-linux-android`.
+3. **CEF Runtime Style:**
+   - Usar **Chrome runtime com Alloy style** (`RuntimeStyle::ALLOY`), conforme o modelo moderno do CEF (sem a UI nativa do Chrome).
+4. **CEF Sandbox e CRT estático:**
+   - No Spike da Fase 0, iniciar com `no_sandbox = 1` para validar boot, reprodução de YouTube e baseline de RAM sem bloqueios.
+   - Nas fases seguintes / build de release no CI, avaliar e testar:
+     - habilitação do sandbox oficial do CEF no runner MSVC;
+     - linkagem estática do CRT (`+crt-static`) ou verificação de autossuficiência das DLLs empacotadas para garantir execução limpa sem instalar Visual C++ Redistributable.
+
+## Consequências
+- O PC local permanece 100% livre de Visual Studio / Build Tools / SDKs da Microsoft.
+- O repositório nasce com pipeline reproduzível no GitHub Actions.
+- Precisaremos de disciplina em testes unitários, `clippy` e preview local via Vite para reduzir a quantidade de ciclos de push necessários para depurar mudanças visuais ou de lógica.

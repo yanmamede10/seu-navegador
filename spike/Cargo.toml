@@ -1,0 +1,9 @@
+[package]
+name = "seu-navegador-spike"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Phase 0 disposable spike: CEF Alloy window loading YouTube and measuring baseline RAM."
+
+[dependencies]
+cef = "156"

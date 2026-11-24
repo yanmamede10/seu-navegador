@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seu Navegador — referência das 9 interfaces da v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Rubik+Mono+One&family=Silkscreen:wght@400;700&family=Space+Grotesk:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Shrikhand&family=Work+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fraunces:ital,wght@1,700;1,900&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#111;color:#eee;font-family:system-ui,sans-serif}
+.top{position:sticky;top:0;z-index:10;background:#111;border-bottom:1px solid #333;padding:12px 20px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.top strong{margin-right:12px}
+.top a{color:#9cf;text-decoration:none;font-size:14px}
+.intro{max-width:980px;padding:24px 20px;line-height:1.55;font-size:15px}
+.intro code{background:#222;padding:1px 5px;border-radius:4px}
+.theme{border-top:6px solid #333}
+.theme-head{padding:16px 20px;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
+.theme-head h2{margin:0;font-size:22px}
+.theme-head code{color:#9cf}
+.theme-head p{margin:0;width:100%;color:#aaa;font-size:14px}
+</style>
+</head>
+<body>
+<nav class="top"><strong>Seu Navegador · UI v1</strong><a href="#y2k-maximal">Y2K Maximal</a><a href="#glassmorphism">Glassmorphism</a><a href="#neumorphism">Neumorphism</a><a href="#editorial">Editorial</a><a href="#brutalist">Brutalista</a><a href="#neobrutalist">Neobrutalista</a><a href="#retro-70s">Retrô anos 70</a><a href="#y2k-classic">Y2K clássico</a><a href="#maximal">Maximalista</a></nav>
+<div class="intro">
+<p><strong>Para o Claude Code:</strong> este arquivo é a referência visual das 9 interfaces (temas) que o navegador entrega na v1. Cada tema mostra a <em>página de nova aba</em> com a moldura do navegador (abas, barra de endereço, indicadores). Os valores numéricos (412 MB, 3 abas dormindo, 128 bloqueados etc.) e os atalhos são <strong>dados de exemplo</strong>: no app real vêm da API do navegador.</p>
+<p>Cada tema está num <code>&lt;template id="tpl-&lt;id&gt;"&gt;</code> com o CSS dele, renderizado dentro de um Shadow DOM para os estilos não vazarem. O JSON <code>#theme-tokens</code> no fim do arquivo resume cores e fontes de cada tema. Use o markup como referência de layout e estilo; a implementação real deve separar estrutura (componentes da shell) de tema (tokens + CSS), conforme o prompt.</p>
+</div>
+
+<section class="theme" id="y2k-maximal" data-theme-id="y2k-maximal" data-source="Main.dc.html">
+  <header class="theme-head"><h2>Y2K Maximal</h2><code>y2k-maximal</code><p>Tema principal / padrão. Y2K + maximalismo, azul-marinho com rosa choque, verde-limão e ciano como apoio.</p></header>
+  <div class="host" data-template="tpl-y2k-maximal"></div>
+  <template id="tpl-y2k-maximal">
+<style>
+:host{display:block;margin:0;background:#050820}
+a{color:#FF5FAE}a:hover{color:#FFB3D9}
+.gridbg{background-color:#070B24;background-image:radial-gradient(rgba(255,46,147,.22) 1.4px,transparent 1.6px),linear-gradient(rgba(90,120,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(90,120,255,.12) 1px,transparent 1px);background-size:14px 14px,56px 56px,56px 56px}
+.chrome{background:linear-gradient(180deg,#FFFFFF 0%,#DDE3FF 30%,#7083E8 50%,#F2F4FF 66%,#FF8CC6 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.holo{background:linear-gradient(115deg,#FF2E93,#8A7CFF,#4FD8FF,#B6FF3B,#FF2E93)}
+.checker{background-image:repeating-conic-gradient(#FF2E93 0 25%,#0B1240 0 50%);background-size:18px 18px}
+.cd{background:conic-gradient(from 30deg,#E8ECFF,#FFB3D9,#9DEBFF,#C9FF8C,#E8ECFF,#C8B8FF,#E8ECFF)}
+.bar{background:linear-gradient(90deg,#1B2A8C,#3D5BFF 60%,#FF2E93)}
+input::placeholder{color:#8F9BD9}
+</style>
+<div class="gridbg" style="position: relative; overflow: hidden; min-height: 1180px; font-family: 'Space Grotesk', sans-serif; color: #E6E9FF; display: flex; flex-direction: column">
+
+<div class="bar" style="display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 8px 0 14px; border-bottom: 2px solid #FFFFFF">
+<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0C13 8 16 11 24 12C16 13 13 16 12 24C11 16 8 13 0 12C8 11 11 8 12 0Z" fill="#FFFFFF"></path></svg>
+<span style="flex: 1; font-family: 'Silkscreen', monospace; font-size: 13px; color: #FFFFFF">SEU_NAVEGADOR.exe — nova aba</span>
+<button aria-label="Minimizar" style="width: 30px; height: 26px; border: 2px outset #E6E9FF; background: #C9D3FF; color: #070B24; font-family: 'Silkscreen', monospace; font-size: 12px">_</button>
+<button aria-label="Maximizar" style="width: 30px; height: 26px; border: 2px outset #E6E9FF; background: #C9D3FF; color: #070B24; font-family: 'Silkscreen', monospace; font-size: 12px">□</button>
+<button aria-label="Fechar" style="width: 30px; height: 26px; border: 2px outset #FFB3D9; background: #FF2E93; color: #FFFFFF; font-family: 'Silkscreen', monospace; font-size: 12px">X</button>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 10px 16px 0; background: #0B1240; border-bottom: 3px solid #FF2E93">
+<button style="min-height: 42px; padding: 0 18px; border: 2px solid #FF2E93; border-bottom: none; border-radius: 16px 16px 0 0; background: #141E5C; color: #FFFFFF; font-family: 'Audiowide', sans-serif; font-size: 13px">★ Início</button>
+<button style="min-height: 42px; padding: 0 18px; border: 2px solid #2A3680; border-bottom: none; border-radius: 16px 16px 0 0; background: #0E1650; color: #C9D3FF; font-size: 13px">♪ YouTube</button>
+<button style="min-height: 42px; padding: 0 18px; border: 2px dashed #2A3680; border-bottom: none; border-radius: 16px 16px 0 0; background: transparent; color: #8F9BD9; font-size: 13px">docs.rs <span style="font-family: 'VT323', monospace; font-size: 17px; color: #4FD8FF">zzz</span></button>
+<button style="min-height: 42px; padding: 0 18px; border: 2px dashed #2A3680; border-bottom: none; border-radius: 16px 16px 0 0; background: transparent; color: #8F9BD9; font-size: 13px">GitHub <span style="font-family: 'VT323', monospace; font-size: 17px; color: #4FD8FF">zzz</span></button>
+<button aria-label="Nova aba" style="width: 44px; height: 42px; border: none; background: transparent; color: #FF2E93; font-size: 26px">+</button>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 16px; background: #0E1650; border-bottom: 2px solid #2A3680">
+<button aria-label="Voltar" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #4FD8FF; background: #141E5C; color: #E6E9FF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<button aria-label="Avançar" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #2A3680; background: #141E5C; color: #8F9BD9"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></button>
+<button aria-label="Recarregar" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #2A3680; background: #141E5C; color: #E6E9FF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg></button>
+<label style="flex: 1 1 320px; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px; border-radius: 22px; background: #070B24; border: 2px solid #2A3680"><span style="font-family: 'VT323', monospace; font-size: 20px; color: #FF2E93">&gt;_</span><input aria-label="Endereço" placeholder="digite um endereço ou pesquise" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #E6E9FF; font-family: 'Space Grotesk', sans-serif; font-size: 14px"></label>
+<span style="min-height: 36px; display: flex; align-items: center; padding: 0 14px; border-radius: 18px; background: #070B24; border: 2px solid #4FD8FF; font-family: 'VT323', monospace; font-size: 20px; color: #4FD8FF">RAM ▮▮▮▯▯ 412 MB</span>
+<span style="min-height: 36px; display: flex; align-items: center; padding: 0 14px; border-radius: 18px; background: #B6FF3B; color: #070B24; font-weight: 700; font-size: 13px">◆ 128 bloqueados</span>
+</div>
+
+<div style="position: relative; flex: 1; padding: 44px 76px 56px">
+
+<div style="position: absolute; left: 0; top: 0; bottom: 0; width: 46px; background: #FF2E93; display: flex; justify-content: center; overflow: hidden" aria-hidden="true"><span style="writing-mode: vertical-rl; transform: rotate(180deg); font-family: 'Rubik Mono One', sans-serif; font-size: 16px; color: #070B24; white-space: nowrap; letter-spacing: 2px; padding: 12px 0">SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR</span></div>
+<div class="checker" style="position: absolute; right: 0; top: 0; bottom: 0; width: 46px" aria-hidden="true"></div>
+
+<svg style="position: absolute; left: 0; top: 70px; width: 100%; height: 260px; pointer-events: none" viewBox="0 0 1440 260" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="rib" x1="0" x2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0"></stop><stop offset=".35" stop-color="#DDE3FF" stop-opacity=".7"></stop><stop offset=".6" stop-color="#7083E8" stop-opacity=".5"></stop><stop offset=".8" stop-color="#FFB3D9" stop-opacity=".7"></stop><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"></stop></linearGradient></defs><path d="M-40 220C260 40 520 260 760 120S1180 -10 1480 90" fill="none" stroke="url(#rib)" stroke-width="30" stroke-linecap="round"></path><path d="M-40 236C280 70 540 280 780 146S1200 20 1480 116" fill="none" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="3"></path></svg>
+
+<svg style="position: absolute; right: 7%; top: 24px; width: 150px; height: 150px" viewBox="0 0 100 100" fill="none" stroke="#4FD8FF" stroke-width="1.4" aria-hidden="true"><circle cx="50" cy="50" r="46"></circle><ellipse cx="50" cy="50" rx="20" ry="46"></ellipse><ellipse cx="50" cy="50" rx="36" ry="46"></ellipse><path d="M4 50h92M10 28h80M10 72h80"></path></svg>
+<svg style="position: absolute; left: 9%; top: 30px; width: 96px; height: 96px; transform: rotate(-12deg)" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,0 58,30 88,12 70,40 100,50 70,60 88,88 58,70 50,100 42,70 12,88 30,60 0,50 30,40 12,12 42,30" fill="#B6FF3B"></polygon></svg>
+<svg style="position: absolute; right: 22%; bottom: 140px; width: 44px; height: 38px" viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true"><path d="M1 0h2v1h1V0h2v1h1v2h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1H0V1h1z" fill="#FF2E93"></path></svg>
+<svg style="position: absolute; left: 30%; bottom: 60px; width: 30px; height: 26px" viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true"><path d="M1 0h2v1h1V0h2v1h1v2h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1H0V1h1z" fill="#B6FF3B"></path></svg>
+
+<div style="position: relative; display: flex; flex-wrap: wrap; gap: 32px; max-width: 1360px; margin: 0 auto">
+
+<aside style="flex: 1 1 250px; min-width: 0; display: flex; flex-direction: column; gap: 26px; padding-top: 150px">
+<div style="transform: rotate(-3deg); border: 2px solid #FFFFFF; background: #C9D3FF; box-shadow: 8px 8px 0 #FF2E93; color: #070B24">
+<div class="bar" style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 4px 10px; font-family: 'Silkscreen', monospace; font-size: 12px; color: #FFFFFF">Aviso!<span style="width: 18px; height: 16px; background: #C9D3FF; color: #070B24; text-align: center; line-height: 16px">x</span></div>
+<div style="padding: 14px; font-size: 14px; line-height: 1.45">3 abas foram dormir.<br><strong>395 MB devolvidos</strong> pro seu PC ♥</div>
+<div style="padding: 0 14px 14px; display: flex; justify-content: flex-end"><button style="min-width: 72px; min-height: 32px; border: 2px outset #FFFFFF; background: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px; color: #070B24">OK</button></div>
+</div>
+<div style="border: 2px solid #4FD8FF; border-radius: 20px; background: #0B1240; padding: 14px; transform: rotate(1.5deg)">
+<div style="display: flex; justify-content: space-between; font-family: 'Silkscreen', monospace; font-size: 11px; color: #4FD8FF"><span>♪ TOCANDO AGORA</span><span>aba: YouTube</span></div>
+<div style="margin: 10px 0; padding: 8px 10px; background: #070B24; border: 1px solid #2A3680; font-family: 'VT323', monospace; font-size: 20px; color: #B6FF3B; white-space: nowrap; overflow: hidden">vídeo em reprodução · 01:24 / 03:50</div>
+<div style="height: 8px; border-radius: 4px; background: #2A3680"><div style="width: 37%; height: 8px; border-radius: 4px; background: #FF2E93"></div></div>
+<div style="display: flex; justify-content: center; gap: 10px; margin-top: 12px">
+<button aria-label="Anterior" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #C9D3FF; background: #141E5C; color: #FFFFFF"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"></path></svg></button>
+<button aria-label="Pausar" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #FFFFFF; background: #FF2E93; color: #070B24"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg></button>
+<button aria-label="Próximo" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid #C9D3FF; background: #141E5C; color: #FFFFFF"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"></path></svg></button>
+</div>
+</div>
+</aside>
+
+<main style="flex: 999 1 540px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 22px">
+<div style="position: relative; display: flex; flex-direction: column; align-items: center; padding-top: 20px">
+<span style="align-self: flex-start; margin-left: 8%; padding: 4px 14px; background: #FF2E93; color: #070B24; font-family: 'Rubik Mono One', sans-serif; font-size: clamp(22px, 3vw, 38px); transform: rotate(-6deg); border: 3px solid #FFFFFF">SEU</span>
+<h1 class="chrome" style="margin: -4px 0 0; font-family: 'Rubik Mono One', sans-serif; font-size: clamp(44px, 7.4vw, 108px); line-height: .95; letter-spacing: -3px; text-align: center; filter: drop-shadow(6px 6px 0 #FF2E93) drop-shadow(0 0 18px rgba(79,216,255,.45))">NAVEGADOR</h1>
+<span style="position: absolute; right: -6px; bottom: -26px; width: 96px; height: 96px; border-radius: 50%; background: #B6FF3B; color: #070B24; display: flex; align-items: center; justify-content: center; text-align: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; line-height: 1.15; transform: rotate(14deg); border: 3px dashed #070B24">100%<br>SEU<br>JEITO</span>
+</div>
+
+
+<div style="width: 100%; max-width: 760px; border: 2px solid #FFFFFF; background: #0B1240; box-shadow: 10px 10px 0 #4FD8FF">
+<div class="bar" style="display: flex; justify-content: space-between; align-items: center; padding: 5px 8px 5px 12px; font-family: 'Silkscreen', monospace; font-size: 13px; color: #FFFFFF">buscar.exe<span style="display: flex; gap: 4px"><span style="width: 20px; height: 18px; background: #C9D3FF; color: #070B24; text-align: center; line-height: 18px">?</span><span style="width: 20px; height: 18px; background: #C9D3FF; color: #070B24; text-align: center; line-height: 18px">x</span></span></div>
+<div class="holo" style="margin: 16px; padding: 3px; border-radius: 30px">
+<label style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 8px 0 22px; border-radius: 28px; background: #070B24">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FF5FAE" stroke-width="2.5" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<input aria-label="Pesquisar" placeholder="pesquise qualquer coisa..." style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #FFFFFF; font-family: 'Space Grotesk', sans-serif; font-size: 18px">
+<button style="min-height: 46px; padding: 0 22px; border-radius: 23px; border: 2px solid #FFFFFF; background: #FF2E93; color: #070B24; font-family: 'Rubik Mono One', sans-serif; font-size: 13px">BUSCAR</button>
+</label>
+</div>
+<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 0 16px 16px">
+<button style="min-height: 44px; padding: 0 16px; border: 2px solid #FF2E93; background: #FF2E93; color: #070B24; font-family: 'Silkscreen', monospace; font-size: 12px">WEB</button>
+<button style="min-height: 44px; padding: 0 16px; border: 2px solid #2A3680; background: #0E1650; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">VÍDEOS</button>
+<button style="min-height: 44px; padding: 0 16px; border: 2px solid #2A3680; background: #0E1650; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">IMAGENS</button>
+<button style="min-height: 44px; padding: 0 16px; border: 2px solid #2A3680; background: #0E1650; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">CÓDIGO</button>
+<button style="min-height: 44px; padding: 0 16px; border: 2px solid #2A3680; background: #0E1650; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">DOCS</button>
+</div>
+</div>
+
+<div style="width: 100%; max-width: 760px; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 16px; margin-top: 10px">
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">
+<span class="cd" style="width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 0 0 4px #FF2E93">
+<span style="width: 40px; height: 40px; border-radius: 50%; background: #070B24; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; border: 2px solid #C9D3FF">YT</span>
+</span>
+<span>YouTube</span>
+</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">
+<span class="cd" style="width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 0 0 4px #4FD8FF">
+<span style="width: 40px; height: 40px; border-radius: 50%; background: #070B24; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; border: 2px solid #C9D3FF">GH</span>
+</span>
+<span>GitHub</span>
+</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">
+<span class="cd" style="width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 0 0 4px #B6FF3B">
+<span style="width: 40px; height: 40px; border-radius: 50%; background: #070B24; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; border: 2px solid #C9D3FF">RS</span>
+</span>
+<span>docs.rs</span>
+</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">
+<span class="cd" style="width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 0 0 4px #8A7CFF">
+<span style="width: 40px; height: 40px; border-radius: 50%; background: #070B24; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; border: 2px solid #C9D3FF">GD</span>
+</span>
+<span>Godot</span>
+</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">
+<span class="cd" style="width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 0 0 4px #FF2E93">
+<span style="width: 40px; height: 40px; border-radius: 50%; background: #070B24; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; border: 2px solid #C9D3FF">IO</span>
+</span>
+<span>itch.io</span>
+</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: #E6E9FF; font-family: 'Silkscreen', monospace; font-size: 12px">
+<span class="cd" style="width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 0 0 4px #4FD8FF">
+<span style="width: 40px; height: 40px; border-radius: 50%; background: #070B24; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; border: 2px solid #C9D3FF">ST</span>
+</span>
+<span>Steam</span>
+</a>
+
+</div>
+</main>
+
+<aside style="flex: 1 1 250px; min-width: 0; display: flex; flex-direction: column; padding-top: 190px">
+<div style="transform: rotate(2.5deg); border: 2px solid #FFFFFF; background: #0B1240; box-shadow: -8px 8px 0 #B6FF3B">
+<div class="bar" style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 4px 10px; font-family: 'Silkscreen', monospace; font-size: 12px; color: #FFFFFF">interfaces.exe<span style="width: 18px; height: 16px; background: #C9D3FF; color: #070B24; text-align: center; line-height: 16px">x</span></div>
+<div style="padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<button style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 0 12px; border: 2px solid #FF2E93; background: #141E5C; color: #FFFFFF; font-size: 13px">Y2K Maximal <span style="color: #FF2E93">●</span></button>
+<button style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 0 12px; border: 2px solid #2A3680; background: #0E1650; color: #C9D3FF; font-size: 13px">Chrome Líquido <span>○</span></button>
+<button style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 0 12px; border: 2px solid #2A3680; background: #0E1650; color: #C9D3FF; font-size: 13px">Minimal Noturno <span>○</span></button>
+<button style="min-height: 44px; border: 2px dashed #FF2E93; background: transparent; color: #FF5FAE; font-family: 'Silkscreen', monospace; font-size: 12px">+ CRIAR MINHA INTERFACE</button>
+</div>
+</div>
+<div style="position: relative; margin-top: -10px; margin-left: 24px; transform: rotate(-4deg); border: 2px solid #FFFFFF; background: #FF2E93; color: #070B24; padding: 14px 16px; box-shadow: 6px 6px 0 #070B24">
+<span style="position: absolute; top: -16px; right: -10px; padding: 4px 10px; background: #B6FF3B; font-family: 'Rubik Mono One', sans-serif; font-size: 10px; transform: rotate(10deg); border: 2px solid #070B24">NOVO!</span>
+<div style="font-family: 'Rubik Mono One', sans-serif; font-size: 15px">MODO JOGO</div>
+<p style="margin: 6px 0 10px; font-size: 13px; line-height: 1.4; font-weight: 500">Jogo em tela cheia? Tudo dorme e a RAM volta pro jogo.</p>
+<button style="min-height: 44px; width: 100%; border: 2px solid #070B24; background: #070B24; color: #FFFFFF; font-family: 'Silkscreen', monospace; font-size: 12px">[ LIGADO ]</button>
+</div>
+<div style="margin-top: 26px; padding: 14px 16px; background: #070B24; border: 2px solid #2A3680; font-family: 'VT323', monospace; font-size: 19px; line-height: 1.3; color: #8F9BD9">
+<div style="color: #4FD8FF">C:\&gt; status.exe</div>
+<div>motor .......... CEF</div>
+<div>abas ativas .... 2</div>
+<div>abas dormindo .. 3</div>
+<div style="color: #FF5FAE">bloqueador ..... ON</div>
+</div>
+</aside>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 26px; justify-content: center; padding: 12px 20px; background: #B6FF3B; color: #070B24; font-family: 'Rubik Mono One', sans-serif; font-size: 12px; letter-spacing: 1px; border-top: 3px solid #070B24">
+<span>★ 3 ABAS DORMINDO</span><span>♥ 128 RASTREADORES BARRADOS</span><span>★ 395 MB DEVOLVIDOS</span><span>♥ TEMA: Y2K MAXIMAL</span><span>★ 0% BLOAT</span>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="glassmorphism" data-theme-id="glassmorphism" data-source="Glass.dc.html">
+  <header class="theme-head"><h2>Glassmorphism</h2><code>glassmorphism</code><p>Painéis de vidro fosco (backdrop-filter) sobre manchas de cor desfocadas.</p></header>
+  <div class="host" data-template="tpl-glassmorphism"></div>
+  <template id="tpl-glassmorphism">
+<style>
+:host{display:block;margin:0}
+a{color:#FFFFFF}a:hover{color:#FFD6EC}
+.glass{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);box-shadow:0 8px 32px rgba(8,2,30,.28)}
+input::placeholder{color:rgba(255,255,255,.72)}
+</style>
+<div style="position: relative; overflow: hidden; min-height: 900px; background: #160B33; font-family: 'Outfit', sans-serif; color: #FFFFFF; display: flex; flex-direction: column">
+<div style="position: absolute; width: 520px; height: 520px; left: -120px; top: 120px; border-radius: 50%; background: #FF4FA3; filter: blur(90px); opacity: .75" aria-hidden="true"></div>
+<div style="position: absolute; width: 460px; height: 460px; right: -80px; top: -60px; border-radius: 50%; background: #3EC9FF; filter: blur(90px); opacity: .7" aria-hidden="true"></div>
+<div style="position: absolute; width: 420px; height: 420px; left: 45%; bottom: -160px; border-radius: 50%; background: #FF9F43; filter: blur(100px); opacity: .6" aria-hidden="true"></div>
+
+<div class="glass" style="position: relative; margin: 16px 16px 0; border-radius: 22px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+
+<button style="min-height: 40px; padding: 0 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.5); background: rgba(255,255,255,.24); color: #FFFFFF; font-family: 'Outfit', sans-serif; font-size: 14px; opacity: 1">Início</button>
+
+<button style="min-height: 40px; padding: 0 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.2); background: transparent; color: #FFFFFF; font-family: 'Outfit', sans-serif; font-size: 14px; opacity: 1">YouTube</button>
+
+<button style="min-height: 40px; padding: 0 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.15); background: transparent; color: #FFFFFF; font-family: 'Outfit', sans-serif; font-size: 14px; opacity: 0.6">docs.rs · dormindo</button>
+
+<button style="min-height: 40px; padding: 0 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.15); background: transparent; color: #FFFFFF; font-family: 'Outfit', sans-serif; font-size: 14px; opacity: 0.6">GitHub · dormindo</button>
+
+<button aria-label="Nova aba" style="width: 40px; height: 40px; border-radius: 14px; border: 1px solid rgba(255,255,255,.3); background: transparent; color: #FFFFFF; font-size: 22px">+</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<button aria-label="Voltar" style="width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #FFFFFF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+<button aria-label="Avançar" style="width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #FFFFFF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+<label style="flex: 1 1 300px; display: flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 22px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3)"><input aria-label="Endereço" placeholder="digite um endereço ou pesquise" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #FFFFFF; font-family: 'Outfit', sans-serif; font-size: 15px"></label>
+<span style="min-height: 36px; display: flex; align-items: center; padding: 0 14px; border-radius: 18px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); font-size: 14px">RAM · 412 MB</span>
+</div>
+</div>
+
+<div style="position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 70px 24px 48px">
+<h1 style="margin: 0; font-size: clamp(48px, 7vw, 96px); font-weight: 300; letter-spacing: -2px; text-align: center; line-height: 1">seu <span style="font-weight: 700">navegador</span></h1>
+<label class="glass" style="width: 100%; max-width: 720px; display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 0 10px 0 24px; border-radius: 32px; box-sizing: border-box">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+<input aria-label="Pesquisar" placeholder="pesquise qualquer coisa" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #FFFFFF; font-family: 'Outfit', sans-serif; font-size: 18px">
+<button style="min-height: 46px; padding: 0 24px; border-radius: 23px; border: none; background: #FFFFFF; color: #160B33; font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 15px">Buscar</button>
+</label>
+<div style="width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px">
+
+<a href="#" class="glass" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 20px; text-decoration: none; color: #FFFFFF; font-size: 14px">
+<span style="width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); font-weight: 700; font-size: 15px">YT</span>YouTube</a>
+
+<a href="#" class="glass" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 20px; text-decoration: none; color: #FFFFFF; font-size: 14px">
+<span style="width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); font-weight: 700; font-size: 15px">GH</span>GitHub</a>
+
+<a href="#" class="glass" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 20px; text-decoration: none; color: #FFFFFF; font-size: 14px">
+<span style="width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); font-weight: 700; font-size: 15px">RS</span>docs.rs</a>
+
+<a href="#" class="glass" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 20px; text-decoration: none; color: #FFFFFF; font-size: 14px">
+<span style="width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); font-weight: 700; font-size: 15px">GD</span>Godot</a>
+
+<a href="#" class="glass" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 20px; text-decoration: none; color: #FFFFFF; font-size: 14px">
+<span style="width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); font-weight: 700; font-size: 15px">IO</span>itch.io</a>
+
+<a href="#" class="glass" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 20px; text-decoration: none; color: #FFFFFF; font-size: 14px">
+<span style="width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.22); font-weight: 700; font-size: 15px">ST</span>Steam</a>
+
+</div>
+<div style="width: 100%; max-width: 720px; display: flex; flex-wrap: wrap; gap: 14px">
+<div class="glass" style="flex: 1 1 300px; border-radius: 20px; padding: 16px 20px">
+<div style="font-size: 13px; opacity: .85">Abas dormindo</div>
+<div style="font-size: 22px; font-weight: 600">3 abas · 395 MB liberados</div>
+</div>
+<div class="glass" style="flex: 1 1 260px; border-radius: 20px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<div><div style="font-size: 13px; opacity: .85">Modo jogo</div><div style="font-size: 22px; font-weight: 600">Ligado</div></div>
+<button aria-label="Desligar modo jogo" style="width: 56px; height: 32px; border-radius: 16px; border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.3); padding: 3px; display: flex; justify-content: flex-end"><span style="width: 24px; height: 24px; border-radius: 50%; background: #FFFFFF"></span></button>
+</div>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="neumorphism" data-theme-id="neumorphism" data-source="Neumorph.dc.html">
+  <header class="theme-head"><h2>Neumorphism</h2><code>neumorphism</code><p>Superfície única cinza-azulada; elementos em relevo (.up) e afundados (.in).</p></header>
+  <div class="host" data-template="tpl-neumorphism"></div>
+  <template id="tpl-neumorphism">
+<style>
+:host{display:block;margin:0}
+a{color:#3A4560}a:hover{color:#4458D6}
+.up{box-shadow:8px 8px 18px #BCC4D3,-8px -8px 18px #FFFFFF}
+.in{box-shadow:inset 6px 6px 12px #BCC4D3,inset -6px -6px 12px #FFFFFF}
+input::placeholder{color:#6B7591}
+</style>
+<div style="min-height: 900px; background: #E4E9F2; font-family: 'Nunito', sans-serif; color: #3A4560; display: flex; flex-direction: column">
+
+<div style="padding: 18px 22px 8px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+
+<button class="in" style="min-height: 42px; padding: 0 18px; border-radius: 14px; border: none; background: #E4E9F2; color: #4458D6; font-family: 'Nunito', sans-serif; font-weight: 600; font-size: 14px">Início</button>
+
+<button class="up" style="min-height: 42px; padding: 0 18px; border-radius: 14px; border: none; background: #E4E9F2; color: #3A4560; font-family: 'Nunito', sans-serif; font-weight: 600; font-size: 14px">YouTube</button>
+
+<button class="up" style="min-height: 42px; padding: 0 18px; border-radius: 14px; border: none; background: #E4E9F2; color: #6B7591; font-family: 'Nunito', sans-serif; font-weight: 600; font-size: 14px">docs.rs · dormindo</button>
+
+<button class="up" style="min-height: 42px; padding: 0 18px; border-radius: 14px; border: none; background: #E4E9F2; color: #6B7591; font-family: 'Nunito', sans-serif; font-weight: 600; font-size: 14px">GitHub · dormindo</button>
+
+<button aria-label="Nova aba" class="up" style="width: 42px; height: 42px; border-radius: 14px; border: none; background: #E4E9F2; color: #4458D6; font-size: 22px">+</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px">
+<button aria-label="Voltar" class="up" style="width: 46px; height: 46px; border-radius: 50%; border: none; background: #E4E9F2; color: #3A4560"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+<button aria-label="Avançar" class="up" style="width: 46px; height: 46px; border-radius: 50%; border: none; background: #E4E9F2; color: #6B7591"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+<label class="in" style="flex: 1 1 300px; display: flex; align-items: center; min-height: 46px; padding: 0 20px; border-radius: 23px; background: #E4E9F2"><input aria-label="Endereço" placeholder="digite um endereço ou pesquise" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #3A4560; font-family: 'Nunito', sans-serif; font-size: 15px"></label>
+<span class="in" style="min-height: 40px; display: flex; align-items: center; padding: 0 16px; border-radius: 20px; font-weight: 800; font-size: 14px; color: #4458D6">412 MB</span>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 34px; padding: 60px 24px 48px">
+<div class="up" style="width: 96px; height: 96px; border-radius: 30px; display: flex; align-items: center; justify-content: center; background: #E4E9F2">
+<div class="in" style="width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; color: #4458D6">SN</div>
+</div>
+<h1 style="margin: -10px 0 0; font-size: clamp(40px, 5.6vw, 72px); font-weight: 800; letter-spacing: -1px; color: #3A4560; text-shadow: 3px 3px 6px #BCC4D3, -3px -3px 6px #FFFFFF; text-align: center">Seu Navegador</h1>
+<label class="in" style="width: 100%; max-width: 700px; display: flex; align-items: center; gap: 14px; min-height: 66px; padding: 0 10px 0 26px; border-radius: 33px; background: #E4E9F2; box-sizing: border-box">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B7591" stroke-width="2.5" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+<input aria-label="Pesquisar" placeholder="pesquise qualquer coisa" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #3A4560; font-family: 'Nunito', sans-serif; font-size: 18px">
+<button class="up" style="min-height: 48px; padding: 0 26px; border-radius: 24px; border: none; background: #4458D6; color: #FFFFFF; font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 15px">Buscar</button>
+</label>
+<div style="width: 100%; max-width: 700px; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 22px">
+
+<a href="#" class="up" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 22px; background: #E4E9F2; text-decoration: none; color: #3A4560; font-weight: 600; font-size: 14px">
+<span class="in" style="width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #4458D6">YT</span>YouTube</a>
+
+<a href="#" class="up" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 22px; background: #E4E9F2; text-decoration: none; color: #3A4560; font-weight: 600; font-size: 14px">
+<span class="in" style="width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #4458D6">GH</span>GitHub</a>
+
+<a href="#" class="up" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 22px; background: #E4E9F2; text-decoration: none; color: #3A4560; font-weight: 600; font-size: 14px">
+<span class="in" style="width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #4458D6">RS</span>docs.rs</a>
+
+<a href="#" class="up" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 22px; background: #E4E9F2; text-decoration: none; color: #3A4560; font-weight: 600; font-size: 14px">
+<span class="in" style="width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #4458D6">GD</span>Godot</a>
+
+<a href="#" class="up" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 22px; background: #E4E9F2; text-decoration: none; color: #3A4560; font-weight: 600; font-size: 14px">
+<span class="in" style="width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #4458D6">IO</span>itch.io</a>
+
+<a href="#" class="up" style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px; border-radius: 22px; background: #E4E9F2; text-decoration: none; color: #3A4560; font-weight: 600; font-size: 14px">
+<span class="in" style="width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #4458D6">ST</span>Steam</a>
+
+</div>
+<div style="width: 100%; max-width: 700px; display: flex; flex-wrap: wrap; gap: 22px">
+<div class="up" style="flex: 1 1 300px; border-radius: 22px; padding: 18px 22px">
+<div style="font-size: 13px; font-weight: 600; color: #6B7591">Abas dormindo</div>
+<div style="font-size: 20px; font-weight: 800">3 abas · 395 MB liberados</div>
+<div class="in" style="height: 10px; border-radius: 5px; margin-top: 12px"><div style="width: 62%; height: 10px; border-radius: 5px; background: #4458D6"></div></div>
+</div>
+<div class="up" style="flex: 1 1 240px; border-radius: 22px; padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<div><div style="font-size: 13px; font-weight: 600; color: #6B7591">Modo jogo</div><div style="font-size: 20px; font-weight: 800">Ligado</div></div>
+<button aria-label="Desligar modo jogo" class="in" style="width: 62px; height: 34px; border-radius: 17px; border: none; background: #E4E9F2; padding: 4px; display: flex; justify-content: flex-end"><span class="up" style="width: 26px; height: 26px; border-radius: 50%; background: #4458D6"></span></button>
+</div>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="editorial" data-theme-id="editorial" data-source="Editorial.dc.html">
+  <header class="theme-head"><h2>Editorial</h2><code>editorial</code><p>Layout de revista: serifa grande, fios, índice numerado, coluna lateral.</p></header>
+  <div class="host" data-template="tpl-editorial"></div>
+  <template id="tpl-editorial">
+<style>
+:host{display:block;margin:0}
+a{color:#16130F}a:hover{color:#B3122B}
+input::placeholder{color:#6E665A}
+</style>
+<div style="min-height: 900px; background: #F4EFE6; font-family: 'Inter', sans-serif; color: #16130F; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-wrap: wrap; align-items: stretch; border-bottom: 1px solid #16130F">
+
+<button style="min-height: 44px; padding: 0 22px; border: none; border-right: 1px solid #16130F; background: #16130F; color: #F4EFE6; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase">Início</button>
+
+<button style="min-height: 44px; padding: 0 22px; border: none; border-right: 1px solid #16130F; background: transparent; color: #16130F; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase">YouTube</button>
+
+<button style="min-height: 44px; padding: 0 22px; border: none; border-right: 1px solid #16130F; background: transparent; color: #6E665A; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase">docs.rs · em repouso</button>
+
+<button style="min-height: 44px; padding: 0 22px; border: none; border-right: 1px solid #16130F; background: transparent; color: #6E665A; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase">GitHub · em repouso</button>
+
+<button aria-label="Nova aba" style="width: 48px; min-height: 44px; border: none; border-right: 1px solid #16130F; background: transparent; color: #16130F; font-size: 20px">+</button>
+<label style="flex: 1 1 300px; display: flex; align-items: center; gap: 12px; padding: 0 18px"><span style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 18px; color: #B3122B">ir para</span><input aria-label="Endereço" placeholder="endereço ou pesquisa" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #16130F; font-family: 'Inter', sans-serif; font-size: 14px"></label>
+</div>
+
+<div style="max-width: 1240px; width: 100%; margin: 0 auto; padding: 26px 32px 48px; box-sizing: border-box; flex: 1; display: flex; flex-direction: column">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 3px double #16130F; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase">
+<span>Edição Nº 01</span><span>Página inicial</span><span>Memória em uso: 412 MB</span>
+</div>
+<h1 style="margin: 18px 0 6px; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: clamp(64px, 11vw, 168px); line-height: .88; letter-spacing: -3px; text-align: center">Seu <span style="font-style: italic; color: #B3122B">Navegador</span></h1>
+<p style="margin: 0 0 22px; text-align: center; font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; color: #4A433A">Leve, pessoal e editado por você.</p>
+
+<label style="display: flex; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid #16130F; border-bottom: 1px solid #16130F">
+<span style="font-family: 'Instrument Serif', serif; font-size: 30px">Pesquisar —</span>
+<input aria-label="Pesquisar" placeholder="o que você procura hoje?" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #16130F; font-family: 'Instrument Serif', serif; font-style: italic; font-size: 30px">
+<button style="min-height: 46px; padding: 0 26px; border: 1px solid #16130F; background: #16130F; color: #F4EFE6; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase">Buscar</button>
+</label>
+
+<div style="display: flex; flex-wrap: wrap; gap: 40px; margin-top: 28px">
+<div style="flex: 999 1 480px; min-width: 0">
+<div style="font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; color: #B3122B">Índice</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px">
+
+<a href="#" style="display: flex; align-items: baseline; gap: 14px; padding: 12px 0; border-bottom: 1px solid #C9BFAE; text-decoration: none"><span style="font-family: 'Instrument Serif', serif; font-size: 28px; color: #B3122B">I</span><span style="font-family: 'Instrument Serif', serif; font-size: 28px">YouTube</span></a>
+
+<a href="#" style="display: flex; align-items: baseline; gap: 14px; padding: 12px 0; border-bottom: 1px solid #C9BFAE; text-decoration: none"><span style="font-family: 'Instrument Serif', serif; font-size: 28px; color: #B3122B">II</span><span style="font-family: 'Instrument Serif', serif; font-size: 28px">GitHub</span></a>
+
+<a href="#" style="display: flex; align-items: baseline; gap: 14px; padding: 12px 0; border-bottom: 1px solid #C9BFAE; text-decoration: none"><span style="font-family: 'Instrument Serif', serif; font-size: 28px; color: #B3122B">III</span><span style="font-family: 'Instrument Serif', serif; font-size: 28px">docs.rs</span></a>
+
+<a href="#" style="display: flex; align-items: baseline; gap: 14px; padding: 12px 0; border-bottom: 1px solid #C9BFAE; text-decoration: none"><span style="font-family: 'Instrument Serif', serif; font-size: 28px; color: #B3122B">IV</span><span style="font-family: 'Instrument Serif', serif; font-size: 28px">Godot</span></a>
+
+<a href="#" style="display: flex; align-items: baseline; gap: 14px; padding: 12px 0; border-bottom: 1px solid #C9BFAE; text-decoration: none"><span style="font-family: 'Instrument Serif', serif; font-size: 28px; color: #B3122B">V</span><span style="font-family: 'Instrument Serif', serif; font-size: 28px">itch.io</span></a>
+
+<a href="#" style="display: flex; align-items: baseline; gap: 14px; padding: 12px 0; border-bottom: 1px solid #C9BFAE; text-decoration: none"><span style="font-family: 'Instrument Serif', serif; font-size: 28px; color: #B3122B">VI</span><span style="font-family: 'Instrument Serif', serif; font-size: 28px">Steam</span></a>
+
+</div>
+</div>
+<aside style="flex: 1 1 280px; border-left: 1px solid #16130F; padding-left: 28px">
+<div style="font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; color: #B3122B">Nesta edição</div>
+<p style="margin: 0 0 16px; font-family: 'Instrument Serif', serif; font-size: 26px; line-height: 1.15">Três abas foram dormir e devolveram <span style="font-style: italic">395 MB</span> ao sistema.</p>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #4A433A">docs.rs e GitHub seguem em repouso até você voltar a elas. O bloqueador barrou 128 rastreadores desde a manhã.</p>
+<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 14px; border-top: 1px solid #16130F">
+<span style="font-family: 'Instrument Serif', serif; font-size: 22px">Modo jogo</span>
+<button style="min-height: 44px; padding: 0 18px; border: 1px solid #16130F; background: transparent; color: #16130F; font-size: 12px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase">Ligado</button>
+</div>
+</aside>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="brutalist" data-theme-id="brutalist" data-source="Brutalist.dc.html">
+  <header class="theme-head"><h2>Brutalista</h2><code>brutalist</code><p>HTML cru: fontes do sistema, links azuis sublinhados, bordas pretas, zero enfeite.</p></header>
+  <div class="host" data-template="tpl-brutalist"></div>
+  <template id="tpl-brutalist">
+<style>
+:host{display:block;margin:0}
+a{color:#0000EE}a:hover{color:#551A8B;background:#FFFF00}
+input::placeholder{color:#555555}
+</style>
+<div style="min-height: 900px; background: #FFFFFF; font-family: 'Times New Roman', Times, serif; color: #000000; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-wrap: wrap; border-bottom: 4px solid #000000">
+
+<button style="min-height: 44px; padding: 0 16px; border: none; border-right: 2px solid #000000; background: #000000; color: #FFFFFF; font-family: 'Courier New', monospace; font-size: 14px">[INÍCIO]</button>
+
+<button style="min-height: 44px; padding: 0 16px; border: none; border-right: 2px solid #000000; background: #FFFFFF; color: #000000; font-family: 'Courier New', monospace; font-size: 14px">youtube</button>
+
+<button style="min-height: 44px; padding: 0 16px; border: none; border-right: 2px solid #000000; background: #FFFFFF; color: #555555; font-family: 'Courier New', monospace; font-size: 14px">docs.rs (zzz)</button>
+
+<button style="min-height: 44px; padding: 0 16px; border: none; border-right: 2px solid #000000; background: #FFFFFF; color: #555555; font-family: 'Courier New', monospace; font-size: 14px">github (zzz)</button>
+
+<button aria-label="Nova aba" style="min-width: 44px; min-height: 44px; border: none; border-right: 2px solid #000000; background: #FFFFFF; font-family: 'Courier New', monospace; font-size: 20px">+</button>
+<label style="flex: 1 1 300px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-family: 'Courier New', monospace; font-size: 14px">URL:<input aria-label="Endereço" placeholder="http://" style="flex: 1; min-width: 0; min-height: 30px; border: 2px solid #000000; padding: 0 8px; font-family: 'Courier New', monospace; font-size: 14px"></label>
+</div>
+
+<div style="padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 22px; flex: 1">
+<h1 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-weight: 900; font-size: clamp(72px, 13vw, 200px); line-height: .82; letter-spacing: -6px; text-transform: uppercase">SEU<br>NAVEGADOR.</h1>
+<p style="margin: 0; font-size: 20px; max-width: 720px">Isto é um navegador. Ele usa <mark style="background: #FFFF00">412 MB</mark> de RAM agora. Não tem enfeite. Pesquise abaixo.</p>
+
+<form style="display: flex; flex-wrap: wrap; gap: 0; max-width: 900px">
+<label style="flex: 1 1 320px; display: flex"><span style="position: absolute; left: -9999px">Pesquisar</span><input placeholder="pesquisar" style="flex: 1; min-width: 0; min-height: 64px; border: 4px solid #000000; padding: 0 16px; font-family: 'Times New Roman', serif; font-size: 28px"></label>
+<button style="min-height: 72px; padding: 0 28px; border: 4px solid #000000; border-left: none; background: #000000; color: #FFFFFF; font-family: Arial, sans-serif; font-weight: 900; font-size: 22px; text-transform: uppercase">Buscar →</button>
+</form>
+
+<div style="display: flex; flex-wrap: wrap; gap: 32px">
+<div style="flex: 999 1 420px; min-width: 0">
+<h2 style="margin: 0 0 8px; font-family: 'Courier New', monospace; font-size: 16px; font-weight: 400">/// ATALHOS</h2>
+<ol style="margin: 0; padding-left: 28px; font-size: 26px; line-height: 1.55">
+
+<li><a href="#">YouTube</a> <span style="font-family: 'Courier New', monospace; font-size: 14px; color: #555555">youtube.com</span></li>
+
+<li><a href="#">GitHub</a> <span style="font-family: 'Courier New', monospace; font-size: 14px; color: #555555">github.com</span></li>
+
+<li><a href="#">docs.rs</a> <span style="font-family: 'Courier New', monospace; font-size: 14px; color: #555555">docs.rs</span></li>
+
+<li><a href="#">Godot</a> <span style="font-family: 'Courier New', monospace; font-size: 14px; color: #555555">godotengine.org</span></li>
+
+<li><a href="#">itch.io</a> <span style="font-family: 'Courier New', monospace; font-size: 14px; color: #555555">itch.io</span></li>
+
+<li><a href="#">Steam</a> <span style="font-family: 'Courier New', monospace; font-size: 14px; color: #555555">store.steampowered.com</span></li>
+
+</ol>
+</div>
+<div style="flex: 1 1 300px; border: 4px solid #000000; padding: 16px; font-family: 'Courier New', monospace; font-size: 15px; line-height: 1.7">
+<div style="font-weight: 700">STATUS.TXT</div>
+<div>----------------------</div>
+<div>abas ativas: 2</div>
+<div>abas dormindo: 3 (395 MB livres)</div>
+<div>rastreadores barrados: 128</div>
+<div>modo jogo: <mark style="background: #FFFF00">LIGADO</mark></div>
+<div>----------------------</div>
+<button style="margin-top: 8px; min-height: 44px; padding: 0 14px; border: 2px solid #000000; background: #DDDDDD; font-family: 'Courier New', monospace; font-size: 14px">[desligar modo jogo]</button>
+</div>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="neobrutalist" data-theme-id="neobrutalist" data-source="Neobrutalist.dc.html">
+  <header class="theme-head"><h2>Neobrutalista</h2><code>neobrutalist</code><p>Cores pastel fortes, bordas pretas 3px, sombras duras deslocadas.</p></header>
+  <div class="host" data-template="tpl-neobrutalist"></div>
+  <template id="tpl-neobrutalist">
+<style>
+:host{display:block;margin:0}
+a{color:#111111}a:hover{color:#111111}
+input::placeholder{color:#555555}
+</style>
+<div style="min-height: 900px; background: #FFF4D6; font-family: 'Space Grotesk', sans-serif; color: #111111; display: flex; flex-direction: column">
+
+<div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; background: #FFFFFF; border-bottom: 3px solid #111111">
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+
+<button style="min-height: 42px; padding: 0 16px; border: 3px solid #111111; border-radius: 10px; background: #FFD23F; color: #111111; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; box-shadow: 3px 3px 0 #111111">Início</button>
+
+<button style="min-height: 42px; padding: 0 16px; border: 3px solid #111111; border-radius: 10px; background: #FFFFFF; color: #111111; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; box-shadow: 3px 3px 0 #111111">YouTube</button>
+
+<button style="min-height: 42px; padding: 0 16px; border: 3px solid #111111; border-radius: 10px; background: #EDEDED; color: #111111; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; box-shadow: none">docs.rs · zzz</button>
+
+<button style="min-height: 42px; padding: 0 16px; border: 3px solid #111111; border-radius: 10px; background: #EDEDED; color: #111111; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; box-shadow: none">GitHub · zzz</button>
+
+<button aria-label="Nova aba" style="width: 42px; height: 42px; border: 3px solid #111111; border-radius: 10px; background: #FFFFFF; color: #111111; font-size: 22px; font-weight: 700; box-shadow: 3px 3px 0 #111111">+</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<button aria-label="Voltar" style="width: 44px; height: 44px; border: 3px solid #111111; border-radius: 10px; background: #A6E3FF; box-shadow: 3px 3px 0 #111111"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="3" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+<label style="flex: 1 1 300px; display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 3px solid #111111; border-radius: 10px; background: #FFFFFF"><input aria-label="Endereço" placeholder="digite um endereço ou pesquise" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-family: 'Space Grotesk', sans-serif; font-weight: 500; font-size: 15px"></label>
+<span style="min-height: 44px; display: flex; align-items: center; padding: 0 14px; border: 3px solid #111111; border-radius: 10px; background: #B8F27C; font-weight: 700; font-size: 14px; box-sizing: border-box">RAM 412 MB</span>
+</div>
+</div>
+
+<div style="flex: 1; max-width: 1180px; width: 100%; margin: 0 auto; padding: 44px 24px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 30px">
+<div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px">
+<span style="padding: 6px 18px; border: 3px solid #111111; border-radius: 14px; background: #FF7AB6; font-family: 'Archivo Black', sans-serif; font-size: clamp(40px, 6vw, 84px); box-shadow: 6px 6px 0 #111111; transform: rotate(-3deg)">SEU</span>
+<span style="padding: 6px 18px; border: 3px solid #111111; border-radius: 14px; background: #FFD23F; font-family: 'Archivo Black', sans-serif; font-size: clamp(40px, 6vw, 84px); box-shadow: 6px 6px 0 #111111">NAVEGADOR</span>
+</div>
+<label style="width: 100%; max-width: 760px; display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 0 8px 0 22px; border: 3px solid #111111; border-radius: 16px; background: #FFFFFF; box-shadow: 8px 8px 0 #111111; box-sizing: border-box">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="3" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+<input aria-label="Pesquisar" placeholder="pesquise qualquer coisa" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-family: 'Space Grotesk', sans-serif; font-weight: 500; font-size: 19px">
+<button style="min-height: 50px; padding: 0 24px; border: 3px solid #111111; border-radius: 12px; background: #7B61FF; color: #FFFFFF; font-family: 'Archivo Black', sans-serif; font-size: 15px">BUSCAR</button>
+</label>
+<div style="width: 100%; max-width: 760px; display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 16px">
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 3px solid #111111; border-radius: 14px; background: #FF7AB6; box-shadow: 5px 5px 0 #111111; text-decoration: none; font-weight: 700; font-size: 14px">
+<span style="font-family: 'Archivo Black', sans-serif; font-size: 22px">YT</span>YouTube</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 3px solid #111111; border-radius: 14px; background: #FFFFFF; box-shadow: 5px 5px 0 #111111; text-decoration: none; font-weight: 700; font-size: 14px">
+<span style="font-family: 'Archivo Black', sans-serif; font-size: 22px">GH</span>GitHub</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 3px solid #111111; border-radius: 14px; background: #FFD23F; box-shadow: 5px 5px 0 #111111; text-decoration: none; font-weight: 700; font-size: 14px">
+<span style="font-family: 'Archivo Black', sans-serif; font-size: 22px">RS</span>docs.rs</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 3px solid #111111; border-radius: 14px; background: #A6E3FF; box-shadow: 5px 5px 0 #111111; text-decoration: none; font-weight: 700; font-size: 14px">
+<span style="font-family: 'Archivo Black', sans-serif; font-size: 22px">GD</span>Godot</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 3px solid #111111; border-radius: 14px; background: #B8F27C; box-shadow: 5px 5px 0 #111111; text-decoration: none; font-weight: 700; font-size: 14px">
+<span style="font-family: 'Archivo Black', sans-serif; font-size: 22px">IO</span>itch.io</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 3px solid #111111; border-radius: 14px; background: #C9B8FF; box-shadow: 5px 5px 0 #111111; text-decoration: none; font-weight: 700; font-size: 14px">
+<span style="font-family: 'Archivo Black', sans-serif; font-size: 22px">ST</span>Steam</a>
+
+</div>
+<div style="width: 100%; max-width: 760px; display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 300px; padding: 16px 20px; border: 3px solid #111111; border-radius: 14px; background: #A6E3FF; box-shadow: 5px 5px 0 #111111">
+<div style="font-weight: 700; font-size: 13px">ABAS DORMINDO</div>
+<div style="font-family: 'Archivo Black', sans-serif; font-size: 22px">3 abas · 395 MB livres</div>
+</div>
+<div style="flex: 1 1 240px; padding: 16px 20px; border: 3px solid #111111; border-radius: 14px; background: #FFFFFF; box-shadow: 5px 5px 0 #111111; display: flex; align-items: center; justify-content: space-between; gap: 10px">
+<div style="font-family: 'Archivo Black', sans-serif; font-size: 20px">Modo jogo</div>
+<button style="min-height: 44px; padding: 0 16px; border: 3px solid #111111; border-radius: 10px; background: #B8F27C; font-family: 'Archivo Black', sans-serif; font-size: 14px">LIGADO</button>
+</div>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="retro-70s" data-theme-id="retro-70s" data-source="Retro.dc.html">
+  <header class="theme-head"><h2>Retrô anos 70</h2><code>retro-70s</code><p>Paleta terrosa (laranja, mostarda, marrom, petróleo), listras e arco-íris de anéis.</p></header>
+  <div class="host" data-template="tpl-retro-70s"></div>
+  <template id="tpl-retro-70s">
+<style>
+:host{display:block;margin:0}
+a{color:#3B2418}a:hover{color:#B8461A}
+input::placeholder{color:#7A5A45}
+</style>
+<div style="position: relative; overflow: hidden; min-height: 900px; background: #F3E3C3; font-family: 'Work Sans', sans-serif; color: #3B2418; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-direction: column" aria-hidden="true">
+<div style="height: 10px; background: #B8461A"></div><div style="height: 10px; background: #E86A2B"></div><div style="height: 10px; background: #E8A33D"></div><div style="height: 10px; background: #2F6F6A"></div>
+</div>
+<div style="padding: 12px 18px; display: flex; flex-direction: column; gap: 10px; background: #3B2418">
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+
+<button style="min-height: 40px; padding: 0 18px; border: none; border-radius: 20px; background: #E86A2B; color: #FFF6E3; font-family: 'Work Sans', sans-serif; font-weight: 600; font-size: 14px">Início</button>
+
+<button style="min-height: 40px; padding: 0 18px; border: none; border-radius: 20px; background: #5A3A28; color: #F3E3C3; font-family: 'Work Sans', sans-serif; font-weight: 600; font-size: 14px">YouTube</button>
+
+<button style="min-height: 40px; padding: 0 18px; border: none; border-radius: 20px; background: transparent; color: #C9A98A; font-family: 'Work Sans', sans-serif; font-weight: 600; font-size: 14px">docs.rs · zzz</button>
+
+<button style="min-height: 40px; padding: 0 18px; border: none; border-radius: 20px; background: transparent; color: #C9A98A; font-family: 'Work Sans', sans-serif; font-weight: 600; font-size: 14px">GitHub · zzz</button>
+
+<button aria-label="Nova aba" style="width: 40px; height: 40px; border: none; border-radius: 50%; background: #E8A33D; color: #3B2418; font-size: 22px; font-weight: 700">+</button>
+</div>
+<label style="display: flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 22px; background: #F3E3C3"><input aria-label="Endereço" placeholder="digite um endereço ou pesquise" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #3B2418; font-family: 'Work Sans', sans-serif; font-size: 15px"><span style="font-weight: 700; font-size: 13px; color: #B8461A">RAM 412 MB</span></label>
+</div>
+
+<div style="position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 40px 24px 48px">
+<div style="position: absolute; left: 50%; top: -260px; transform: translateX(-50%); width: 900px; height: 900px; border-radius: 50%; border: 36px solid #E8A33D; box-shadow: 0 0 0 36px #E86A2B, 0 0 0 72px #B8461A, 0 0 0 108px #2F6F6A; opacity: .22" aria-hidden="true"></div>
+<h1 style="position: relative; margin: 30px 0 0; font-family: 'Shrikhand', serif; font-weight: 400; font-size: clamp(56px, 8vw, 118px); line-height: .95; color: #E86A2B; text-shadow: 4px 4px 0 #B8461A, 8px 8px 0 #3B2418; text-align: center">Seu Navegador</h1>
+<p style="position: relative; margin: 0; font-weight: 600; font-size: 18px; letter-spacing: 4px; text-transform: uppercase; color: #2F6F6A">leve · groovy · seu</p>
+<label style="position: relative; width: 100%; max-width: 720px; display: flex; align-items: center; gap: 12px; min-height: 66px; padding: 0 8px 0 26px; border-radius: 33px; border: 4px solid #3B2418; background: #FFF6E3; box-sizing: border-box">
+<input aria-label="Pesquisar" placeholder="pesquise qualquer coisa" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #3B2418; font-family: 'Work Sans', sans-serif; font-size: 19px">
+<button style="min-height: 48px; padding: 0 26px; border: none; border-radius: 24px; background: #E86A2B; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 18px">Buscar</button>
+</label>
+<div style="position: relative; width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 16px">
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px">
+<span style="width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #B8461A; border: 4px solid #3B2418; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 22px">Y</span>YouTube</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px">
+<span style="width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2F6F6A; border: 4px solid #3B2418; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 22px">G</span>GitHub</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px">
+<span style="width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #E86A2B; border: 4px solid #3B2418; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 22px">R</span>docs.rs</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px">
+<span style="width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #5A3A28; border: 4px solid #3B2418; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 22px">Gd</span>Godot</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px">
+<span style="width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #B8461A; border: 4px solid #3B2418; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 22px">i</span>itch.io</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px">
+<span style="width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2F6F6A; border: 4px solid #3B2418; color: #FFF6E3; font-family: 'Shrikhand', serif; font-size: 22px">S</span>Steam</a>
+
+</div>
+<div style="position: relative; width: 100%; max-width: 720px; display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 300px; padding: 16px 22px; border-radius: 24px; background: #2F6F6A; color: #FFF6E3">
+<div style="font-weight: 700; font-size: 12px; letter-spacing: 3px; text-transform: uppercase">Abas dormindo</div>
+<div style="font-family: 'Shrikhand', serif; font-size: 24px">3 abas · 395 MB de volta</div>
+</div>
+<div style="flex: 1 1 240px; padding: 16px 22px; border-radius: 24px; background: #E8A33D; display: flex; align-items: center; justify-content: space-between; gap: 10px">
+<div style="font-family: 'Shrikhand', serif; font-size: 22px">Modo jogo</div>
+<button style="min-height: 44px; padding: 0 18px; border: none; border-radius: 22px; background: #3B2418; color: #FFF6E3; font-weight: 700; font-size: 13px; letter-spacing: 2px">LIGADO</button>
+</div>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="y2k-classic" data-theme-id="y2k-classic" data-source="Y2KClassic.dc.html">
+  <header class="theme-head"><h2>Y2K clássico</h2><code>y2k-classic</code><p>Prata com riscas, barra metálica, botões de gel aqua/verde.</p></header>
+  <div class="host" data-template="tpl-y2k-classic"></div>
+  <template id="tpl-y2k-classic">
+<style>
+:host{display:block;margin:0}
+a{color:#0B5E8E}a:hover{color:#063A58}
+.pin{background-color:#E6EDF5;background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.7) 0 2px,transparent 2px 4px)}
+.metal{background:linear-gradient(180deg,#F4F6F9,#C9D1DB)}
+.gel{background:linear-gradient(180deg,#9FE0FF 0%,#38AEE6 50%,#1E8FCB 51%,#5CC6F5 100%)}
+.gelg{background:linear-gradient(180deg,#D4F59A 0%,#8BD12C 50%,#6DB51A 51%,#A7E04F 100%)}
+input::placeholder{color:#5D6B7A}
+</style>
+<div class="pin" style="min-height: 900px; font-family: Verdana, Tahoma, sans-serif; color: #1C2733; display: flex; flex-direction: column">
+
+<div class="metal" style="padding: 10px 16px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid #8A96A6">
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+
+<button class="gel" style="min-height: 34px; padding: 0 16px; border: 1px solid #6F7E90; border-radius: 17px; color: #FFFFFF; font-family: Verdana, sans-serif; font-size: 12px; font-weight: 700">Início</button>
+
+<button class="metal" style="min-height: 34px; padding: 0 16px; border: 1px solid #6F7E90; border-radius: 17px; color: #1C2733; font-family: Verdana, sans-serif; font-size: 12px; font-weight: 700">YouTube</button>
+
+<button class="metal" style="min-height: 34px; padding: 0 16px; border: 1px solid #6F7E90; border-radius: 17px; color: #5D6B7A; font-family: Verdana, sans-serif; font-size: 12px; font-weight: 700">docs.rs (dormindo)</button>
+
+<button class="metal" style="min-height: 34px; padding: 0 16px; border: 1px solid #6F7E90; border-radius: 17px; color: #5D6B7A; font-family: Verdana, sans-serif; font-size: 12px; font-weight: 700">GitHub (dormindo)</button>
+
+<button aria-label="Nova aba" class="gelg" style="width: 34px; height: 34px; border: 1px solid #4F8A12; border-radius: 50%; color: #FFFFFF; font-size: 18px; font-weight: 700">+</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<button aria-label="Voltar" class="gel" style="width: 44px; height: 44px; border: 1px solid #146D9C; border-radius: 50%; color: #FFFFFF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+<button aria-label="Avançar" class="gel" style="width: 44px; height: 44px; border: 1px solid #146D9C; border-radius: 50%; color: #FFFFFF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+<label style="flex: 1 1 300px; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 12px; border: 1px solid #7D8A99; border-radius: 4px; background: #FFFFFF; box-shadow: inset 0 2px 3px rgba(0,0,0,.18)"><span style="font-size: 12px; color: #5D6B7A">Endereço</span><input aria-label="Endereço" placeholder="http://" style="flex: 1; min-width: 0; border: none; outline: none; font-family: Verdana, sans-serif; font-size: 13px"></label>
+<span style="min-height: 30px; display: flex; align-items: center; padding: 0 12px; border-radius: 15px; border: 1px solid #7D8A99; background: #FFFFFF; font-size: 12px; font-weight: 700; color: #0B5E8E">RAM: 412 MB</span>
+</div>
+</div>
+
+<div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 56px 24px 48px">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+<span style="font-family: 'Orbitron', sans-serif; font-weight: 500; font-size: 18px; letter-spacing: 10px; color: #5D6B7A">BEM-VINDO AO</span>
+<h1 style="margin: 0; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: clamp(44px, 6.4vw, 92px); letter-spacing: 2px; color: #1E8FCB; text-shadow: 0 2px 0 #FFFFFF, 0 6px 12px rgba(30,143,203,.35); text-align: center">SEU NAVEGADOR</h1>
+<span style="font-size: 13px; color: #5D6B7A">versão 1.0 · a internet do futuro</span>
+</div>
+<div style="width: 100%; max-width: 720px; padding: 18px; border: 1px solid #8A96A6; border-radius: 18px; background: rgba(255,255,255,.75); box-shadow: 0 6px 18px rgba(28,39,51,.18); box-sizing: border-box">
+<label style="display: flex; align-items: center; gap: 10px">
+<input aria-label="Pesquisar" placeholder="Pesquisar na web" style="flex: 1; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid #7D8A99; border-radius: 22px; box-shadow: inset 0 2px 3px rgba(0,0,0,.18); font-family: Verdana, sans-serif; font-size: 16px">
+<button class="gel" style="min-height: 44px; padding: 0 26px; border: 1px solid #146D9C; border-radius: 22px; color: #FFFFFF; font-family: Verdana, sans-serif; font-weight: 700; font-size: 14px; text-shadow: 0 1px 1px rgba(0,0,0,.35)">Buscar!</button>
+</label>
+<div style="display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px"><span style="font-weight: 700">Web</span><a href="#">Vídeos</a><a href="#">Imagens</a><a href="#">Código</a><a href="#">Docs</a></div>
+</div>
+<div style="width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 16px">
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-size: 12px; font-weight: 700; color: #1C2733">
+<span class="gel" style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #5D6B7A; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 4px 8px rgba(28,39,51,.25)">YT</span>YouTube</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-size: 12px; font-weight: 700; color: #1C2733">
+<span class="gelg" style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #5D6B7A; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 4px 8px rgba(28,39,51,.25)">GH</span>GitHub</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-size: 12px; font-weight: 700; color: #1C2733">
+<span class="gel" style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #5D6B7A; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 4px 8px rgba(28,39,51,.25)">RS</span>docs.rs</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-size: 12px; font-weight: 700; color: #1C2733">
+<span class="gelg" style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #5D6B7A; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 4px 8px rgba(28,39,51,.25)">GD</span>Godot</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-size: 12px; font-weight: 700; color: #1C2733">
+<span class="gel" style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #5D6B7A; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 4px 8px rgba(28,39,51,.25)">IO</span>itch.io</a>
+
+<a href="#" style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; font-size: 12px; font-weight: 700; color: #1C2733">
+<span class="gelg" style="width: 64px; height: 64px; border-radius: 50%; border: 1px solid #5D6B7A; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: 0 4px 8px rgba(28,39,51,.25)">ST</span>Steam</a>
+
+</div>
+<div style="width: 100%; max-width: 720px; display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px">
+<div style="flex: 1 1 300px; padding: 12px 16px; border: 1px solid #8A96A6; border-radius: 12px; background: rgba(255,255,255,.75)"><strong style="color: #0B5E8E">Abas dormindo:</strong> 3 abas · 395 MB liberados</div>
+<div style="flex: 1 1 240px; padding: 8px 8px 8px 16px; border: 1px solid #8A96A6; border-radius: 12px; background: rgba(255,255,255,.75); display: flex; align-items: center; justify-content: space-between; gap: 10px"><strong style="color: #0B5E8E">Modo jogo</strong><button class="gelg" style="min-height: 34px; padding: 0 16px; border: 1px solid #4F8A12; border-radius: 17px; color: #1C2733; font-family: Verdana, sans-serif; font-weight: 700; font-size: 12px">LIGADO</button></div>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<section class="theme" id="maximal" data-theme-id="maximal" data-source="Maximal.dc.html">
+  <header class="theme-head"><h2>Maximalista</h2><code>maximal</code><p>Colagem em blocos de cor sólidos, tipografia condensada + serifa itálica.</p></header>
+  <div class="host" data-template="tpl-maximal"></div>
+  <template id="tpl-maximal">
+<style>
+:host{display:block;margin:0}
+a{color:#141414}a:hover{color:#E63B2E}
+.dots{background-color:#2D6CDF;background-image:radial-gradient(#F2EBDD 2.2px,transparent 2.6px);background-size:14px 14px}
+.chk{background-image:repeating-conic-gradient(#141414 0 25%,#F2EBDD 0 50%);background-size:28px 28px}
+input::placeholder{color:#B8B0A2}
+</style>
+<div style="min-height: 900px; background: #F2EBDD; font-family: 'Space Grotesk', sans-serif; color: #141414; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-wrap: wrap; align-items: stretch; background: #141414; color: #F2EBDD">
+
+<button style="min-height: 46px; padding: 0 18px; border: none; border-right: 3px solid #141414; background: #F2B705; color: #141414; font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 1px; text-transform: uppercase">Início</button>
+
+<button style="min-height: 46px; padding: 0 18px; border: none; border-right: 3px solid #141414; background: #141414; color: #F2EBDD; font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 1px; text-transform: uppercase">YouTube</button>
+
+<button style="min-height: 46px; padding: 0 18px; border: none; border-right: 3px solid #141414; background: #141414; color: #9A9285; font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 1px; text-transform: uppercase">docs.rs zzz</button>
+
+<button style="min-height: 46px; padding: 0 18px; border: none; border-right: 3px solid #141414; background: #141414; color: #9A9285; font-family: 'Anton', sans-serif; font-size: 16px; letter-spacing: 1px; text-transform: uppercase">GitHub zzz</button>
+
+<button aria-label="Nova aba" style="min-width: 46px; min-height: 46px; border: none; background: #1E9E58; color: #141414; font-family: 'Anton', sans-serif; font-size: 22px">+</button>
+<label style="flex: 1 1 300px; display: flex; align-items: center; gap: 10px; padding: 0 16px"><span style="font-family: 'Fraunces', serif; font-style: italic; font-weight: 900; color: #F2B705">→</span><input aria-label="Endereço" placeholder="endereço ou pesquisa" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #F2EBDD; font-family: 'Space Grotesk', sans-serif; font-size: 15px"><span style="font-family: 'Anton', sans-serif; font-size: 15px; color: #F2B705">RAM 412 MB</span></label>
+</div>
+
+<div style="flex: 1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: minmax(120px, auto); gap: 0; border-bottom: 3px solid #141414">
+
+<div style="grid-column: span 4; grid-row: span 2; position: relative; overflow: hidden; background: #E63B2E; padding: 28px 32px; display: flex; flex-direction: column; justify-content: flex-end; border-right: 3px solid #141414; border-bottom: 3px solid #141414">
+<svg style="position: absolute; right: 28px; top: 24px; width: 120px; height: 120px" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,0 58,30 88,12 70,40 100,50 70,60 88,88 58,70 50,100 42,70 12,88 30,60 0,50 30,40 12,12 42,30" fill="#F2B705" stroke="#141414" stroke-width="3"/></svg>
+<span style="font-family: 'Fraunces', serif; font-style: italic; font-weight: 900; font-size: clamp(32px, 4vw, 56px); color: #F2EBDD; line-height: 1">seu</span>
+<h1 style="margin: 0; font-family: 'Anton', sans-serif; font-weight: 400; font-size: clamp(72px, 11vw, 168px); line-height: .86; color: #141414; text-transform: uppercase">Navegador</h1>
+</div>
+
+<div class="dots" style="grid-column: span 2; border-bottom: 3px solid #141414; display: flex; align-items: center; justify-content: center">
+<svg width="140" height="80" viewBox="0 0 140 80" aria-hidden="true"><path d="M5 40C35 0 105 0 135 40C105 80 35 80 5 40Z" fill="#F2EBDD" stroke="#141414" stroke-width="5"/><circle cx="70" cy="40" r="22" fill="#6B3FA0" stroke="#141414" stroke-width="5"/><circle cx="70" cy="40" r="9" fill="#141414"/></svg>
+</div>
+
+<div style="grid-column: span 2; background: #6B3FA0; color: #F2EBDD; border-bottom: 3px solid #141414; padding: 20px 24px; display: flex; flex-direction: column; justify-content: center">
+<span style="font-family: 'Anton', sans-serif; font-size: 15px; letter-spacing: 2px">ABAS DORMINDO</span>
+<span style="font-family: 'Fraunces', serif; font-style: italic; font-weight: 900; font-size: 34px; line-height: 1.05">3 abas · 395 MB de volta</span>
+</div>
+
+<div style="grid-column: span 6; background: #141414; padding: 22px 32px; border-bottom: 3px solid #141414">
+<label style="display: flex; align-items: center; gap: 16px">
+<span style="font-family: 'Anton', sans-serif; font-size: 34px; color: #F2B705; text-transform: uppercase">Busque:</span>
+<input aria-label="Pesquisar" placeholder="qualquer coisa, sério" style="flex: 1; min-width: 0; min-height: 60px; padding: 0 20px; border: 3px solid #F2EBDD; border-radius: 30px; background: transparent; color: #F2EBDD; font-family: 'Fraunces', serif; font-style: italic; font-weight: 700; font-size: 26px">
+<button style="min-height: 60px; padding: 0 30px; border: 3px solid #F2EBDD; border-radius: 30px; background: #1E9E58; color: #141414; font-family: 'Anton', sans-serif; font-size: 24px; text-transform: uppercase">Vai!</button>
+</label>
+</div>
+
+
+<a href="#" style="grid-column: span 1; background: #E63B2E; border-right: 3px solid #141414; border-bottom: 3px solid #141414; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px 8px; text-decoration: none; color: #141414">
+<span style="width: 64px; height: 64px; border-radius: 50%; background: #F2EBDD; border: 3px solid #141414; display: flex; align-items: center; justify-content: center; font-family: 'Anton', sans-serif; font-size: 24px; transform: rotate(0deg)">YT</span>
+<span style="font-family: 'Anton', sans-serif; font-size: 17px; letter-spacing: 1px; text-transform: uppercase">YouTube</span>
+</a>
+
+<a href="#" style="grid-column: span 1; background: #F2EBDD; border-right: 3px solid #141414; border-bottom: 3px solid #141414; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px 8px; text-decoration: none; color: #141414">
+<span style="width: 64px; height: 64px; border-radius: 6px; background: #F2EBDD; border: 3px solid #141414; display: flex; align-items: center; justify-content: center; font-family: 'Anton', sans-serif; font-size: 24px; transform: rotate(-8deg)">GH</span>
+<span style="font-family: 'Anton', sans-serif; font-size: 17px; letter-spacing: 1px; text-transform: uppercase">GitHub</span>
+</a>
+
+<a href="#" style="grid-column: span 1; background: #1E9E58; border-right: 3px solid #141414; border-bottom: 3px solid #141414; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px 8px; text-decoration: none; color: #141414">
+<span style="width: 64px; height: 64px; border-radius: 50% 50% 6px 6px; background: #F2EBDD; border: 3px solid #141414; display: flex; align-items: center; justify-content: center; font-family: 'Anton', sans-serif; font-size: 24px; transform: rotate(0deg)">RS</span>
+<span style="font-family: 'Anton', sans-serif; font-size: 17px; letter-spacing: 1px; text-transform: uppercase">docs.rs</span>
+</a>
+
+<a href="#" style="grid-column: span 1; background: #2D6CDF; border-right: 3px solid #141414; border-bottom: 3px solid #141414; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px 8px; text-decoration: none; color: #141414">
+<span style="width: 64px; height: 64px; border-radius: 6px; background: #F2EBDD; border: 3px solid #141414; display: flex; align-items: center; justify-content: center; font-family: 'Anton', sans-serif; font-size: 24px; transform: rotate(12deg)">GD</span>
+<span style="font-family: 'Anton', sans-serif; font-size: 17px; letter-spacing: 1px; text-transform: uppercase">Godot</span>
+</a>
+
+<a href="#" style="grid-column: span 1; background: #F2B705; border-right: 3px solid #141414; border-bottom: 3px solid #141414; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px 8px; text-decoration: none; color: #141414">
+<span style="width: 64px; height: 64px; border-radius: 50%; background: #F2EBDD; border: 3px solid #141414; display: flex; align-items: center; justify-content: center; font-family: 'Anton', sans-serif; font-size: 24px; transform: rotate(0deg)">IO</span>
+<span style="font-family: 'Anton', sans-serif; font-size: 17px; letter-spacing: 1px; text-transform: uppercase">itch.io</span>
+</a>
+
+<a href="#" style="grid-column: span 1; background: #6B3FA0; border-right: 3px solid #141414; border-bottom: 3px solid #141414; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px 8px; text-decoration: none; color: #141414">
+<span style="width: 64px; height: 64px; border-radius: 6px 50% 6px 50%; background: #F2EBDD; border: 3px solid #141414; display: flex; align-items: center; justify-content: center; font-family: 'Anton', sans-serif; font-size: 24px; transform: rotate(0deg)">ST</span>
+<span style="font-family: 'Anton', sans-serif; font-size: 17px; letter-spacing: 1px; text-transform: uppercase">Steam</span>
+</a>
+
+
+<div class="chk" style="grid-column: span 2; min-height: 120px; border-right: 3px solid #141414" aria-hidden="true"></div>
+<div style="grid-column: span 4; background: #F2B705; padding: 20px 28px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px">
+<span style="font-family: 'Fraunces', serif; font-style: italic; font-weight: 900; font-size: 34px">modo jogo</span>
+<button style="min-height: 52px; padding: 0 26px; border: 3px solid #141414; border-radius: 26px; background: #141414; color: #F2B705; font-family: 'Anton', sans-serif; font-size: 20px; letter-spacing: 1px">LIGADO</button>
+</div>
+</div>
+</div>
+  </template>
+</section>
+
+<script type="application/json" id="theme-tokens">
+{
+  "y2k-maximal": {
+    "fonts": { "display": "Rubik Mono One", "heading": "Audiowide", "pixel": "Silkscreen", "mono": "VT323", "body": "Space Grotesk" },
+    "colors": { "bg": "#070B24", "surface": "#0B1240", "surface2": "#0E1650", "surface3": "#141E5C", "border": "#2A3680", "text": "#E6E9FF", "muted": "#8F9BD9", "accent": "#FF2E93", "accentSoft": "#FF5FAE", "cyan": "#4FD8FF", "lime": "#B6FF3B", "silver": "#C9D3FF" },
+    "notes": "Grid neon + pontilhado rosa no fundo, janelas retrô com barra de título, logo cromado com sombra rosa, CDs holográficos nos atalhos, adesivos girados, faixa lateral com o nome repetido, ticker no rodapé. Accent é ajustável (#FF2E93, #FF4FD8, #4FD8FF, #FFE14F)."
+  },
+  "glassmorphism": {
+    "fonts": { "body": "Outfit" },
+    "colors": { "bg": "#160B33", "blobPink": "#FF4FA3", "blobCyan": "#3EC9FF", "blobOrange": "#FF9F43", "glass": "rgba(255,255,255,.10)", "glassBorder": "rgba(255,255,255,.28)", "text": "#FFFFFF", "buttonBg": "#FFFFFF", "buttonText": "#160B33" },
+    "notes": "backdrop-filter: blur(22px); raio 20-32px; manchas de cor com filter: blur(90px)."
+  },
+  "neumorphism": {
+    "fonts": { "body": "Nunito" },
+    "colors": { "bg": "#E4E9F2", "shadowDark": "#BCC4D3", "shadowLight": "#FFFFFF", "text": "#3A4560", "muted": "#6B7591", "accent": "#4458D6" },
+    "notes": "Relevo: 8px 8px 18px dark, -8px -8px 18px light. Afundado: inset 6px 6px 12px dark, inset -6px -6px 12px light."
+  },
+  "editorial": {
+    "fonts": { "display": "Instrument Serif", "body": "Inter" },
+    "colors": { "paper": "#F4EFE6", "ink": "#16130F", "rule": "#C9BFAE", "muted": "#4A433A", "accent": "#B3122B" },
+    "notes": "Fios de 1px, filete duplo no topo, rótulos em caixa alta com letter-spacing, sem raio de borda."
+  },
+  "brutalist": {
+    "fonts": { "body": "Times New Roman", "display": "Arial (900)", "mono": "Courier New" },
+    "colors": { "bg": "#FFFFFF", "text": "#000000", "link": "#0000EE", "visited": "#551A8B", "highlight": "#FFFF00", "button": "#DDDDDD" },
+    "notes": "Bordas pretas 2-4px, zero raio, sem sombra, fontes do sistema."
+  },
+  "neobrutalist": {
+    "fonts": { "display": "Archivo Black", "body": "Space Grotesk" },
+    "colors": { "bg": "#FFF4D6", "ink": "#111111", "yellow": "#FFD23F", "pink": "#FF7AB6", "blue": "#A6E3FF", "green": "#B8F27C", "purple": "#7B61FF", "lilac": "#C9B8FF" },
+    "notes": "Borda 3px #111, raio 10-16px, sombra dura 3-8px deslocada sem blur."
+  },
+  "retro-70s": {
+    "fonts": { "display": "Shrikhand", "body": "Work Sans" },
+    "colors": { "cream": "#F3E3C3", "paper": "#FFF6E3", "brown": "#3B2418", "rust": "#B8461A", "orange": "#E86A2B", "mustard": "#E8A33D", "teal": "#2F6F6A" },
+    "notes": "Listras sólidas no topo, arco-íris de anéis concêntricos atrás do título, título com sombra em degraus."
+  },
+  "y2k-classic": {
+    "fonts": { "display": "Orbitron", "body": "Verdana" },
+    "colors": { "bg": "#E6EDF5", "metalTop": "#F4F6F9", "metalBottom": "#C9D1DB", "aqua": "#38AEE6", "lime": "#8BD12C", "text": "#1C2733", "link": "#0B5E8E", "muted": "#5D6B7A" },
+    "notes": "Riscas horizontais no fundo, barra metálica, botões de gel (brilho na metade de cima), campos com sombra interna."
+  },
+  "maximal": {
+    "fonts": { "display": "Anton", "serif": "Fraunces (itálico 700/900)", "body": "Space Grotesk" },
+    "colors": { "cream": "#F2EBDD", "black": "#141414", "red": "#E63B2E", "green": "#1E9E58", "yellow": "#F2B705", "purple": "#6B3FA0", "blue": "#2D6CDF" },
+    "notes": "Grade de 6 colunas em blocos sólidos separados por fios pretos de 3px; olho gráfico, estrela, xadrez, pontilhado."
+  }
+}
+</script>
+<script>
+document.querySelectorAll('.host').forEach(function (host) {
+  var tpl = document.getElementById(host.dataset.template);
+  host.attachShadow({ mode: 'open' }).appendChild(tpl.content.cloneNode(true));
+});
+</script>
+</body>
+</html>

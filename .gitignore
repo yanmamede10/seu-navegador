@@ -1,0 +1,32 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+
+# Node / Vite (ui/)
+node_modules/
+ui/dist/
+ui/.vite/
+*.tsbuildinfo
+
+# CEF binaries & runtime artifacts
+cef/
+cef_binary*/
+*.dll
+*.pak
+*.bin
+*.dat
+locales/
+!ui/src/locales/
+
+# Logs & local profile data
+*.log
+logs/
+profile/
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
