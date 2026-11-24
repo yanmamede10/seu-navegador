@@ -891,7 +891,7 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                     // releases its internal locks before any navigation/close callbacks fire.
                     let mut task = ExecuteEffectsTask::new(
                         self.state.clone(),
-                        Mutex::new(Some(output.effects)),
+                        Arc::new(Mutex::new(Some(output.effects))),
                     );
                     post_task(ThreadId::UI, Some(&mut task));
                 }
@@ -1378,7 +1378,7 @@ wrap_task! {
 wrap_task! {
     struct ExecuteEffectsTask {
         state: Arc<Mutex<SharedState>>,
-        effects: Mutex<Option<Vec<HostEffect>>>,
+        effects: Arc<Mutex<Option<Vec<HostEffect>>>>,
     }
 
     impl Task {
