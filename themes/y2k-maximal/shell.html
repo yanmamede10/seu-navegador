@@ -11,9 +11,15 @@
       <span class="y2k-incognito-tag" data-seu-if="window.incognito" data-seu-t="app.incognito">ANÔNIMO</span>
     </div>
     <div class="y2k-win-btns">
-      <button type="button" class="y2k-win-btn" data-seu-action="windows.minimize" data-seu-title-t="window.minimize" aria-label="Minimizar">_</button>
-      <button type="button" class="y2k-win-btn" data-seu-action="windows.maximize" data-seu-title-t="window.maximize" aria-label="Maximizar">□</button>
-      <button type="button" class="y2k-win-btn y2k-win-close" data-seu-action="windows.close" data-seu-title-t="window.close" aria-label="Fechar">X</button>
+      <button type="button" class="y2k-win-btn" data-seu-action="windows.minimize" data-seu-title-t="window.minimize" aria-label="Minimizar">
+        <i class="fa-solid fa-minus" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="y2k-win-btn" data-seu-action="windows.maximize" data-seu-title-t="window.maximize" aria-label="Maximizar">
+        <i class="fa-regular fa-square" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="y2k-win-btn y2k-win-close" data-seu-action="windows.close" data-seu-title-t="window.close" aria-label="Fechar">
+        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+      </button>
     </div>
   </header>
 
@@ -21,7 +27,7 @@
     <div class="y2k-groups" data-seu-container="tabGroups">
       <template data-seu-repeat="tabGroups">
         <button type="button" class="y2k-group-chip" data-seu-action="tabGroups.toggleCollapse" data-seu-style-bg="$item.color">
-          <span data-seu-bind="$item.collapseGlyph">▾</span>
+          <i data-seu-icon="$item.collapseIcon" aria-hidden="true"></i>
           <span data-seu-bind="$item.title">Grupo</span>
         </button>
       </template>
@@ -29,25 +35,29 @@
     <div class="y2k-tabs" data-seu-container="tabs">
       <template data-seu-repeat="tabs">
         <div class="y2k-tab" data-seu-action="tabs.activate" data-seu-context-action="tabs.pin" data-seu-middle-action="tabs.close">
-          <span class="y2k-tab-glyph" data-seu-bind="$item.glyph">★</span>
+          <i class="y2k-tab-glyph" data-seu-icon="$item.icon" aria-hidden="true"></i>
           <span class="y2k-tab-title" data-seu-bind="$item.title">Início</span>
           <span class="y2k-tab-zzz" data-seu-if="$item.isSleeping">zzz</span>
-          <button type="button" class="y2k-tab-close" data-seu-action="tabs.close" data-seu-title-t="tabs.close" aria-label="Fechar aba">×</button>
+          <button type="button" class="y2k-tab-close" data-seu-action="tabs.close" data-seu-title-t="tabs.close" aria-label="Fechar aba">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
         </div>
       </template>
     </div>
-    <button type="button" class="y2k-newtab-btn" data-seu-action="tabs.create" data-seu-title-t="tabs.new" aria-label="Nova aba">+</button>
+    <button type="button" class="y2k-newtab-btn" data-seu-action="tabs.create" data-seu-title-t="tabs.new" aria-label="Nova aba">
+      <i class="fa-solid fa-plus" aria-hidden="true"></i>
+    </button>
   </div>
 
   <div class="y2k-navbar">
     <button type="button" class="y2k-nav-btn" data-seu-action="tabs.back" data-seu-disabled-unless="activeTab.can_go_back" data-seu-title-t="nav.back" aria-label="Voltar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
     </button>
     <button type="button" class="y2k-nav-btn" data-seu-action="tabs.forward" data-seu-disabled-unless="activeTab.can_go_forward" data-seu-title-t="nav.forward" aria-label="Avançar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </button>
     <button type="button" class="y2k-nav-btn" data-seu-action="tabs.reload" data-seu-title-t="nav.reload" aria-label="Recarregar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>
+      <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
     </button>
 
     <form class="y2k-omnibox" data-seu-submit="omnibox">
@@ -55,13 +65,17 @@
       <input class="y2k-url-input" type="text" autocomplete="off" spellcheck="false" data-seu-input="omnibox" data-seu-placeholder-t="nav.omniboxPlaceholder" aria-label="Endereço" />
     </form>
 
-    <span class="y2k-ram-pill" data-seu-bind="memory.badgeText">RAM ▮▮▯▯▯ -- MB</span>
+    <span class="y2k-ram-pill">
+      <i class="fa-solid fa-microchip" aria-hidden="true"></i>
+      <span data-seu-bind="memory.badgeText">RAM -- MB</span>
+    </span>
     <span class="y2k-blocker-pill">
-      <span>◆ </span>
+      <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
       <span data-seu-bind="blocker.totalBlocked">0</span>
-      <span> </span>
       <span data-seu-t="y2k.blocked">bloqueados</span>
     </span>
-    <button type="button" class="y2k-nav-btn y2k-menu-btn" data-seu-action="overlay.toggleMenu" data-seu-title-t="nav.menu" aria-label="Menu">≡</button>
+    <button type="button" class="y2k-nav-btn y2k-menu-btn" data-seu-action="overlay.toggleMenu" data-seu-title-t="nav.menu" aria-label="Menu">
+      <i class="fa-solid fa-bars" aria-hidden="true"></i>
+    </button>
   </div>
 </div>

@@ -92,6 +92,8 @@ fn mime_for_path(path: &str) -> &'static str {
         "image/png"
     } else if path.ends_with(".woff2") {
         "font/woff2"
+    } else if path.ends_with(".ttf") {
+        "font/ttf"
     } else {
         "application/octet-stream"
     }

@@ -1,7 +1,7 @@
 <div class="y2k-page gridbg">
   <div class="y2k-stage">
     <div class="y2k-left-ribbon" aria-hidden="true">
-      <span>SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR ★ SEU NAVEGADOR</span>
+      <span>SEU NAVEGADOR // SEU NAVEGADOR // SEU NAVEGADOR // SEU NAVEGADOR // SEU NAVEGADOR // SEU NAVEGADOR</span>
     </div>
     <div class="y2k-right-checker checker" aria-hidden="true"></div>
 
@@ -70,11 +70,11 @@
         <div class="y2k-alert-box" data-seu-if="ui.showAlert">
           <div class="bar y2k-box-bar">
             <span data-seu-t="y2k.alertTitle">Aviso!</span>
-            <span class="y2k-mini-x">x</span>
+            <span class="y2k-mini-x"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span>
           </div>
           <div class="y2k-alert-body">
             <div><span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.sleepingTabsMsg">abas dormindo agora.</span></div>
-            <div><strong data-seu-bind="memory.savedText">0 MB devolvidos</strong> <span data-seu-t="y2k.backToPc">pro seu PC ⚡</span></div>
+            <div><strong data-seu-bind="memory.savedText">0 MB devolvidos</strong> <span data-seu-t="y2k.backToPc">pro seu PC</span> <i class="fa-solid fa-bolt" aria-hidden="true"></i></div>
           </div>
           <div class="y2k-alert-foot">
             <button type="button" class="y2k-retro-ok" data-seu-action="ui.dismissAlert">OK</button>
@@ -83,20 +83,20 @@
 
         <div class="y2k-player">
           <div class="y2k-player-head">
-            <span data-seu-t="y2k.nowPlaying">♪ TOCANDO AGORA</span>
-            <span data-seu-bind="media.source">silêncio</span>
+            <span><i class="fa-solid fa-music" aria-hidden="true"></i> <span data-seu-t="y2k.nowPlaying">TOCANDO AGORA</span></span>
+            <span data-seu-bind="media.source">-</span>
           </div>
           <div class="y2k-player-lcd" data-seu-bind="media.title">nenhuma mídia em reprodução</div>
           <div class="y2k-player-bar"><div class="y2k-player-fill"></div></div>
           <div class="y2k-player-controls">
             <button type="button" class="y2k-media-btn" data-seu-action="media.prev" aria-label="Anterior">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"></path></svg>
+              <i class="fa-solid fa-backward-step" aria-hidden="true"></i>
             </button>
             <button type="button" class="y2k-media-btn y2k-media-play" data-seu-action="media.playPause" aria-label="Pausar">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
+              <i class="fa-solid fa-pause" aria-hidden="true"></i>
             </button>
             <button type="button" class="y2k-media-btn" data-seu-action="media.next" aria-label="Próximo">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"></path></svg>
+              <i class="fa-solid fa-forward-step" aria-hidden="true"></i>
             </button>
           </div>
         </div>
@@ -112,14 +112,11 @@
         <div class="y2k-search-win">
           <div class="bar y2k-box-bar">
             <span>buscar.exe</span>
-            <span class="y2k-box-dots"><span class="y2k-mini-x">?</span><span class="y2k-mini-x">x</span></span>
+            <span class="y2k-box-dots"><span class="y2k-mini-x"><i class="fa-solid fa-question" aria-hidden="true"></i></span><span class="y2k-mini-x"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></span>
           </div>
           <form class="holo y2k-search-holo" data-seu-submit="search">
             <label class="y2k-search-inner">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FF5FAE" stroke-width="2.5" aria-hidden="true">
-                <circle cx="11" cy="11" r="7"></circle>
-                <path d="M20 20l-4-4"></path>
-              </svg>
+              <i class="fa-solid fa-magnifying-glass y2k-search-icon" aria-hidden="true"></i>
               <input class="y2k-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
               <button type="submit" class="y2k-search-btn" data-seu-t="newtab.searchButton">BUSCAR</button>
             </label>
@@ -147,13 +144,13 @@
         <div class="y2k-themes-box">
           <div class="bar y2k-box-bar">
             <span>interfaces.exe</span>
-            <span class="y2k-mini-x">x</span>
+            <span class="y2k-mini-x"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span>
           </div>
           <div class="y2k-themes-list" data-seu-container="themes">
             <template data-seu-repeat="themes">
               <button type="button" class="y2k-theme-row" data-seu-action="themes.setActive" data-seu-param="$item.id">
                 <span data-seu-bind="$item.name">Y2K Maximal</span>
-                <span class="y2k-theme-dot" data-seu-bind="$item.activeGlyph">●</span>
+                <i class="y2k-theme-dot" data-seu-icon="$item.activeIcon" aria-hidden="true"></i>
               </button>
             </template>
           </div>
@@ -181,10 +178,10 @@
   </div>
 
   <footer class="y2k-ticker">
-    <span>★ <span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.tickerSleeping">ABAS DORMINDO</span></span>
-    <span>⚡ <span data-seu-bind="blocker.totalBlocked">0</span> <span data-seu-t="y2k.tickerBlocked">RASTREADORES BARRADOS</span></span>
-    <span>✦ <span data-seu-bind="memory.savedText">0 MB DEVOLVIDOS</span></span>
-    <span>⚡ <span data-seu-t="y2k.tickerTheme">TEMA:</span> <span data-seu-bind="theme.nameUpper">Y2K MAXIMAL</span></span>
-    <span>★ 0% BLOAT</span>
+    <span><i class="fa-solid fa-moon" aria-hidden="true"></i> <span data-seu-bind="memory.sleepingCount">0</span> <span data-seu-t="y2k.tickerSleeping">ABAS DORMINDO</span></span>
+    <span><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> <span data-seu-bind="blocker.totalBlocked">0</span> <span data-seu-t="y2k.tickerBlocked">RASTREADORES BARRADOS</span></span>
+    <span><i class="fa-solid fa-microchip" aria-hidden="true"></i> <span data-seu-bind="memory.savedText">0 MB DEVOLVIDOS</span></span>
+    <span><i class="fa-solid fa-palette" aria-hidden="true"></i> <span data-seu-t="y2k.tickerTheme">TEMA:</span> <span data-seu-bind="theme.nameUpper">Y2K MAXIMAL</span></span>
+    <span><i class="fa-solid fa-bolt" aria-hidden="true"></i> 0% BLOAT</span>
   </footer>
 </div>

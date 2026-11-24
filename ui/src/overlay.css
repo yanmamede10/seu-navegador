@@ -32,6 +32,9 @@ body {
 
 .menu-btn {
   width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   text-align: left;
   padding: 8px 10px;
   border-radius: 8px;
@@ -41,6 +44,12 @@ body {
   font-family: var(--seu-font-body, system-ui, sans-serif);
   font-size: 13px;
   cursor: pointer;
+}
+
+.menu-btn i {
+  width: 16px;
+  text-align: center;
+  color: var(--seu-accent, #FF2E93);
 }
 
 .menu-btn:hover {

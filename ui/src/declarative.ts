@@ -311,6 +311,17 @@ export class DeclarativeRuntime {
           el.style.background = color;
         }
       }
+
+      const iconExpr = el.dataset.seuIcon;
+      if (iconExpr) {
+        const rawIcon = String(lookup(iconExpr) ?? "").trim();
+        if (/^[a-z0-9 -]+$/i.test(rawIcon)) {
+          if (el.dataset.seuBaseClass === undefined) {
+            el.dataset.seuBaseClass = el.className;
+          }
+          el.className = `${el.dataset.seuBaseClass} ${rawIcon}`.trim();
+        }
+      }
     }
   }
 }

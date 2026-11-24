@@ -1,3 +1,4 @@
+import "./icons";
 import {
   callBridge,
   getWindowIdFromQuery,
@@ -32,11 +33,20 @@ function closeOverlay(): void {
   void callBridge("overlay.close", { window_id: windowId });
 }
 
-function addActionButton(label: string, onClick: () => void): void {
+function addActionButton(iconClass: string, label: string, onClick: () => void): void {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "menu-btn";
-  btn.textContent = label;
+
+  const icon = document.createElement("i");
+  icon.className = iconClass;
+  icon.setAttribute("aria-hidden", "true");
+  btn.appendChild(icon);
+
+  const span = document.createElement("span");
+  span.textContent = label;
+  btn.appendChild(span);
+
   btn.addEventListener("click", () => {
     onClick();
     closeOverlay();
@@ -47,15 +57,15 @@ function addActionButton(label: string, onClick: () => void): void {
 function renderMenu(): void {
   menuList.innerHTML = "";
 
-  addActionButton(`+ ${t("menu.newWindow")}`, () => {
+  addActionButton("fa-solid fa-window-maximize", t("menu.newWindow"), () => {
     void callBridge("windows.create", { incognito: false });
   });
 
-  addActionButton(`🕵 ${t("menu.newIncognito")}`, () => {
+  addActionButton("fa-solid fa-user-secret", t("menu.newIncognito"), () => {
     void callBridge("windows.create", { incognito: true });
   });
 
-  addActionButton(`▤ ${t("menu.newGroup")}`, () => {
+  addActionButton("fa-solid fa-layer-group", t("menu.newGroup"), () => {
     void (async () => {
       const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
         window_id: windowId,
@@ -73,7 +83,7 @@ function renderMenu(): void {
     })();
   });
 
-  addActionButton(`↺ ${t("menu.reopenClosed")}`, () => {
+  addActionButton("fa-solid fa-rotate-left", t("menu.reopenClosed"), () => {
     void callBridge("tabs.reopenClosed", { window_id: windowId });
   });
 

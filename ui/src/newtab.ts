@@ -1,3 +1,4 @@
+import "./icons";
 import {
   callBridge,
   getWindowIdFromQuery,
@@ -169,7 +170,10 @@ function renderAll(): void {
   const themeItems: RepeatItem[] = themeList.map((item) => ({
     id: item.id,
     name: item.name,
-    activeGlyph: item.id === currentTheme?.manifest.id ? "●" : "○",
+    activeIcon:
+      item.id === currentTheme?.manifest.id
+        ? "fa-solid fa-circle-dot"
+        : "fa-regular fa-circle",
     state: item.id === currentTheme?.manifest.id ? "active" : "",
   }));
 

@@ -305,14 +305,21 @@ a:hover {
   gap: 4px;
 }
 
+.y2k-ticker > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .y2k-mini-x {
   width: 18px;
   height: 16px;
   background: #C9D3FF;
   color: #070B24;
-  text-align: center;
-  line-height: 16px;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
 }
 
 .y2k-alert-box {
@@ -488,6 +495,11 @@ a:hover {
   padding: 0 8px 0 20px;
   border-radius: 28px;
   background: var(--seu-bg);
+}
+
+.y2k-search-icon {
+  font-size: 18px;
+  color: #FF5FAE;
 }
 
 .y2k-search-input {

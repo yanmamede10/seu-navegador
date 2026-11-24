@@ -1,3 +1,4 @@
+import "./icons";
 import {
   callBridge,
   getWindowIdFromQuery,
@@ -166,18 +167,18 @@ function renderAll(): void {
     if (tab.pinned) states.push("pinned");
     if (tab.audible) states.push("playing");
 
-    const glyph = tab.audible
-      ? "♪"
+    const icon = tab.audible
+      ? "fa-solid fa-volume-high"
       : tab.pinned
-        ? "◆"
+        ? "fa-solid fa-thumbtack"
         : tab.id === currentSnapshot.active_tab_id
-          ? "★"
-          : "•";
+          ? "fa-solid fa-bolt"
+          : "fa-solid fa-globe";
 
     tabItems.push({
       id: tab.id,
-      title: tab.loading ? `… ${tab.title}` : tab.title,
-      glyph,
+      title: tab.loading ? `... ${tab.title}` : tab.title,
+      icon,
       isSleeping: tab.state === "sleeping",
       state: states.join(" "),
     });
@@ -187,7 +188,7 @@ function renderAll(): void {
     id: g.id,
     title: g.title,
     color: g.color,
-    collapseGlyph: g.collapsed ? "▸" : "▾",
+    collapseIcon: g.collapsed ? "fa-solid fa-caret-right" : "fa-solid fa-caret-down",
     state: g.collapsed ? "collapsed" : "expanded",
   }));
 
@@ -204,7 +205,7 @@ function renderAll(): void {
         can_go_forward: activeTab?.can_go_forward ?? false,
       },
       memory: {
-        badgeText: "RAM ▮▮▯▯▯ -- MB",
+        badgeText: "RAM -- MB",
       },
       blocker: {
         totalBlocked: 0,

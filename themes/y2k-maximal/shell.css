@@ -172,9 +172,11 @@ body {
   border: 2px outset #E6E9FF;
   background: #C9D3FF;
   color: #070B24;
-  font-family: 'Silkscreen', monospace;
   font-size: 11px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   padding: 0;
 }
@@ -314,8 +316,11 @@ body {
   border-radius: 50%;
   background: transparent;
   color: inherit;
-  font-size: 15px;
+  font-size: 12px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
@@ -332,8 +337,11 @@ body {
   border: none;
   background: transparent;
   color: var(--seu-accent);
-  font-size: 24px;
+  font-size: 16px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -424,6 +432,7 @@ body {
   min-height: 32px;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding: 0 12px;
   border-radius: 16px;
   background: var(--seu-bg);
@@ -434,10 +443,15 @@ body {
   white-space: nowrap;
 }
 
+.y2k-ram-pill i {
+  font-size: 13px;
+}
+
 .y2k-blocker-pill {
   min-height: 32px;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding: 0 12px;
   border-radius: 16px;
   background: #B6FF3B;
