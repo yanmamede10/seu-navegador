@@ -461,9 +461,15 @@ body {
   gap: 6px;
   padding: 0 12px;
   border-radius: 16px;
+  border: 2px solid #B6FF3B;
   background: #B6FF3B;
   color: #070B24;
   font-weight: 700;
   font-size: 12px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.y2k-blocker-pill:hover {
+  border-color: #FFFFFF;
 }

@@ -18,6 +18,10 @@ use cef::{
     },
     *,
 };
+use seu_blocker::{
+    filter_lists_dir, needs_background_update, write_last_updated, BlockerService,
+    UPSTREAM_LIST_URLS,
+};
 use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{
     shortcuts::{match_shortcut_vk, ShortcutAction},
@@ -28,7 +32,7 @@ use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex, OnceLock,
+    Arc, Mutex, OnceLock, RwLock,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
@@ -86,12 +90,14 @@ struct SharedState {
     core: BrowserCore,
     themes: ThemeRegistry,
     storage: Arc<Mutex<Option<Storage>>>,
+    blocker: Arc<RwLock<BlockerService>>,
     host: Arc<dyn NativeWindowHost>,
     router: Arc<BrowserSideRouter>,
     windows: HashMap<WindowId, WindowViews>,
     tab_browsers: HashMap<TabId, Browser>,
     incognito_contexts: HashMap<WindowId, RequestContext>,
     pending_scroll_restore: HashMap<TabId, (i32, i32)>,
+    pending_sleep_batch: Option<(u32, usize, Vec<TabId>)>,
     probe_token: String,
     monitor_running: Arc<AtomicBool>,
 }
@@ -135,6 +141,13 @@ impl CefEngine {
 
         let router = BrowserSideRouter::new(MessageRouterConfig::default());
         let mut core = BrowserCore::new();
+        let mut blocker = BlockerService::new();
+        blocker.configure(
+            initial_settings.blocker_enabled,
+            &initial_settings.blocker_allowlist,
+        );
+        let lists_dir = filter_lists_dir();
+        let _ = blocker.reload_from_cache_dir(&lists_dir);
         core.settings = initial_settings;
         let themes = ThemeRegistry::load_builtin()
             .map_err(|e| EngineError::InitFailed(format!("failed to load builtin themes: {e}")))?;
@@ -149,12 +162,14 @@ impl CefEngine {
             core,
             themes,
             storage,
+            blocker: Arc::new(RwLock::new(blocker)),
             host,
             router: router.clone(),
             windows: HashMap::new(),
             tab_browsers: HashMap::new(),
             incognito_contexts: HashMap::new(),
             pending_scroll_restore: HashMap::new(),
+            pending_sleep_batch: None,
             probe_token,
             monitor_running: Arc::new(AtomicBool::new(false)),
         }));
@@ -674,6 +689,39 @@ fn broadcast_settings_all(state: &Arc<Mutex<SharedState>>) {
     }
 }
 
+fn broadcast_blocker_all(state: &Arc<Mutex<SharedState>>) {
+    let (stats, chrome_views, tab_browsers) = {
+        let Ok(guard) = state.lock() else {
+            return;
+        };
+        let stats = guard.blocker.read().map(|b| b.stats()).unwrap_or_default();
+        let mut chrome = Vec::new();
+        for win in guard.windows.values() {
+            if let Some(s) = &win.shell {
+                chrome.push(s.clone());
+            }
+            if let Some(o) = &win.overlay {
+                chrome.push(o.clone());
+            }
+        }
+        let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+        (stats, chrome, tabs)
+    };
+
+    let payload = serde_json::json!({ "type": "blocker", "stats": stats });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
 fn broadcast_memory_all(state: &Arc<Mutex<SharedState>>) {
     let (stats, chrome_views, tab_browsers) = {
         let Ok(guard) = state.lock() else {
@@ -1096,16 +1144,41 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::BroadcastSettings => broadcast_settings_all(state),
             HostEffect::BroadcastTheme => broadcast_theme_all(state),
             HostEffect::BroadcastMemory => broadcast_memory_all(state),
+            HostEffect::BroadcastBlocker => broadcast_blocker_all(state),
+            HostEffect::UpdateBlockerLists => spawn_blocker_list_updater(state.clone(), true),
         }
     }
 }
 
 fn sleep_tab_browser(state: &Arc<Mutex<SharedState>>, tab_id: TabId) {
     let before_mem = measure_browser_tree_memory();
-    let browser = state
-        .lock()
-        .ok()
-        .and_then(|mut g| g.tab_browsers.remove(&tab_id));
+    let (browser, should_spawn_delta_timer) = match state.lock() {
+        Ok(mut g) => {
+            let b = g.tab_browsers.remove(&tab_id);
+            let spawn_timer = if b.is_some() {
+                match g.pending_sleep_batch.as_mut() {
+                    Some((_, _, ids)) => {
+                        if !ids.contains(&tab_id) {
+                            ids.push(tab_id);
+                        }
+                        false
+                    }
+                    None => {
+                        g.pending_sleep_batch = Some((
+                            before_mem.total_private_mb(),
+                            before_mem.process_count,
+                            vec![tab_id],
+                        ));
+                        true
+                    }
+                }
+            } else {
+                false
+            };
+            (b, spawn_timer)
+        }
+        Err(_) => return,
+    };
 
     let Some(browser) = browser else {
         return;
@@ -1122,17 +1195,56 @@ fn sleep_tab_browser(state: &Arc<Mutex<SharedState>>, tab_id: TabId) {
         host.close_browser(1);
     }
 
-    // Measure actual OS Private Bytes delta ~1.5s after closing the CEF tab view so
-    // Chromium has time to tear down the renderer (or detect a shared renderer process).
-    let state_clone = state.clone();
-    let before_mb = before_mem.total_private_mb();
-    let before_procs = before_mem.process_count;
+    if should_spawn_delta_timer {
+        // Measure ONE coalesced OS Private Bytes delta ~1.5s after closing the batch of
+        // CEF tab views so multi-tab sleeps never double-count the same RAM drop.
+        let state_clone = state.clone();
+        let _ = std::thread::Builder::new()
+            .name("seu-sleep-delta".into())
+            .spawn(move || {
+                std::thread::sleep(Duration::from_millis(1500));
+                let mut task = MeasureSleepDeltaTask::new(state_clone);
+                post_task(ThreadId::UI, Some(&mut task));
+            });
+    }
+}
+
+fn spawn_blocker_list_updater(state: Arc<Mutex<SharedState>>, force: bool) {
+    let lists_dir = filter_lists_dir();
+    if !force && !needs_background_update(&lists_dir) {
+        return;
+    }
     let _ = std::thread::Builder::new()
-        .name("seu-sleep-delta".into())
+        .name("seu-blocker-update".into())
         .spawn(move || {
-            std::thread::sleep(Duration::from_millis(1500));
-            let mut task = MeasureSleepDeltaTask::new(state_clone, tab_id, before_mb, before_procs);
-            post_task(ThreadId::UI, Some(&mut task));
+            let mut any_downloaded = false;
+            for (filename, url) in UPSTREAM_LIST_URLS {
+                let target = lists_dir.join(filename);
+                let tmp = lists_dir.join(format!("{filename}.tmp"));
+                let status = std::process::Command::new("curl.exe")
+                    .args(["-sSfL", "--max-time", "20", url, "-o"])
+                    .arg(&tmp)
+                    .status();
+                if let Ok(st) = status {
+                    if st.success() && std::fs::rename(&tmp, &target).is_ok() {
+                        any_downloaded = true;
+                    } else {
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                }
+            }
+            if any_downloaded {
+                write_last_updated(&lists_dir);
+                let blocker_arc = state.lock().ok().map(|g| g.blocker.clone());
+                if let Some(blocker_arc) = blocker_arc {
+                    if let Ok(mut b) = blocker_arc.write() {
+                        let count = b.reload_from_cache_dir(&lists_dir);
+                        info!("Updated blocker filter lists ({count} active)");
+                    }
+                }
+                let mut task = BroadcastBlockerTask::new(state);
+                post_task(ThreadId::UI, Some(&mut task));
+            }
         });
 }
 
@@ -1165,11 +1277,24 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                 core,
                 themes,
                 storage,
+                blocker,
                 ..
             } = &mut *guard;
             let storage_guard = storage.lock().ok();
             let db_ref = storage_guard.as_ref().and_then(|g| g.as_ref());
-            handle_raw_request(&origin_url, request, core, themes, db_ref)
+            match blocker.write() {
+                Ok(mut blocker_guard) => handle_raw_request(
+                    &origin_url,
+                    request,
+                    core,
+                    themes,
+                    db_ref,
+                    &mut blocker_guard,
+                ),
+                Err(_) => Err(seu_bridge::BridgeError::InvalidArgument(
+                    "blocker lock error".into(),
+                )),
+            }
         };
 
         match result {
@@ -1338,6 +1463,7 @@ wrap_browser_process_handler! {
 
             create_full_browser_window(&self.state, window_id, false, tab_id, &initial_url);
             start_memory_monitor_thread(self.state.clone());
+            spawn_blocker_list_updater(self.state.clone(), false);
         }
 
         fn on_already_running_app_relaunch(
@@ -1672,6 +1798,32 @@ wrap_load_handler! {
                 let script_url = CefString::from("seu://internal/scroll");
                 frame.execute_java_script(Some(&code), Some(&script_url), 0);
             }
+
+            // Apply adblock cosmetic hiding rules + `##+js(...)` scriptlets.
+            let cosmetic = self
+                .state
+                .lock()
+                .ok()
+                .map(|g| g.blocker.clone())
+                .and_then(|b| b.read().ok().map(|guard| guard.cosmetic_resources_for_url(&url)));
+
+            if let Some(cos) = cosmetic {
+                if !cos.css.is_empty() {
+                    if let Ok(css_json) = serde_json::to_string(&cos.css) {
+                        let inject_css = format!(
+                            "(function(){{var id='seu-adblock-cosmetic';var s=document.getElementById(id);if(!s){{s=document.createElement('style');s.id=id;(document.head||document.documentElement).appendChild(s);}}s.textContent={css_json};}})();"
+                        );
+                        let code = CefString::from(inject_css.as_str());
+                        let script_url = CefString::from("seu://internal/cosmetic");
+                        frame.execute_java_script(Some(&code), Some(&script_url), 0);
+                    }
+                }
+                if !cos.script.is_empty() {
+                    let code = CefString::from(cos.script.as_str());
+                    let script_url = CefString::from("seu://internal/scriptlets");
+                    frame.execute_java_script(Some(&code), Some(&script_url), 0);
+                }
+            }
         }
     }
 }
@@ -1793,6 +1945,27 @@ wrap_request_handler! {
     }
 
     impl RequestHandler {
+        fn resource_request_handler(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _is_navigation: ::std::os::raw::c_int,
+            _is_download: ::std::os::raw::c_int,
+            _request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            if !matches!(self.kind, ViewKind::Tab { .. }) {
+                return None;
+            }
+            let blocker = self.state.lock().ok().map(|g| g.blocker.clone())?;
+            Some(SeuResourceRequestHandler::new(
+                self.state.clone(),
+                blocker,
+                self.kind,
+            ))
+        }
+
         fn on_open_urlfrom_tab(
             &self,
             _browser: Option<&mut Browser>,
@@ -2519,29 +2692,20 @@ wrap_task! {
 wrap_task! {
     struct MeasureSleepDeltaTask {
         state: Arc<Mutex<SharedState>>,
-        tab_id: TabId,
-        before_private_mb: u32,
-        before_procs: usize,
     }
 
     impl Task {
         fn execute(&self) {
             let after = measure_browser_tree_memory();
             let after_mb = after.total_private_mb();
-            let delta_mb = self.before_private_mb.saturating_sub(after_mb);
-            let shared = after.process_count >= self.before_procs && delta_mb < 5;
 
             if let Ok(mut guard) = self.state.lock() {
-                // Only record delta if the tab is still sleeping (user didn't wake it immediately).
-                let still_sleeping = guard
-                    .core
-                    .get_tab(self.tab_id)
-                    .map(|t| t.state == TabLifecycleState::Sleeping)
-                    .unwrap_or(false);
-                if still_sleeping {
+                if let Some((before_mb, before_procs, tab_ids)) = guard.pending_sleep_batch.take() {
+                    let delta_mb = before_mb.saturating_sub(after_mb);
+                    let shared = after.process_count >= before_procs && delta_mb < 5;
                     guard
                         .core
-                        .record_sleep_ram_delta(self.tab_id, delta_mb, shared);
+                        .record_batch_sleep_ram_delta(&tab_ids, delta_mb, shared);
                 }
                 guard.core.update_os_memory_metrics(
                     after_mb,
@@ -2550,6 +2714,125 @@ wrap_task! {
                 );
             }
             broadcast_memory_all(&self.state);
+        }
+    }
+}
+
+wrap_resource_request_handler! {
+    struct SeuResourceRequestHandler {
+        state: Arc<Mutex<SharedState>>,
+        blocker: Arc<RwLock<BlockerService>>,
+        kind: ViewKind,
+    }
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let Some(req) = request else {
+                return ReturnValue::CONTINUE;
+            };
+            let url = CefString::from(&req.url()).to_string();
+            if url.starts_with("seu://") || url.starts_with("data:") || url.starts_with("blob:") {
+                return ReturnValue::CONTINUE;
+            }
+            let rtype = req.resource_type();
+            if rtype == ResourceType::MAIN_FRAME {
+                return ReturnValue::CONTINUE;
+            }
+
+            let source_url = browser
+                .and_then(|b| b.main_frame())
+                .map(|f| CefString::from(&f.url()).to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| CefString::from(&req.first_party_for_cookies()).to_string());
+
+            let method = CefString::from(&req.method())
+                .to_string()
+                .to_ascii_lowercase();
+            let req_type_str = cef_resource_type_str(rtype);
+
+            let should_block = self
+                .blocker
+                .read()
+                .map(|b| b.should_block_request(&url, &source_url, req_type_str, &method))
+                .unwrap_or(false);
+
+            if should_block {
+                if let ViewKind::Tab { tab_id, .. } = self.kind {
+                    let mut task = RecordBlockedTask::new(self.state.clone(), tab_id, url);
+                    post_task(ThreadId::UI, Some(&mut task));
+                }
+                return ReturnValue::CANCEL;
+            }
+
+            ReturnValue::CONTINUE
+        }
+    }
+}
+
+fn cef_resource_type_str(rtype: ResourceType) -> &'static str {
+    if rtype == ResourceType::SCRIPT {
+        "script"
+    } else if rtype == ResourceType::IMAGE {
+        "image"
+    } else if rtype == ResourceType::STYLESHEET {
+        "stylesheet"
+    } else if rtype == ResourceType::SUB_FRAME {
+        "sub_frame"
+    } else if rtype == ResourceType::FONT_RESOURCE {
+        "font"
+    } else if rtype == ResourceType::MEDIA {
+        "media"
+    } else if rtype == ResourceType::XHR {
+        "xmlhttprequest"
+    } else if rtype == ResourceType::PING {
+        "ping"
+    } else if rtype == ResourceType::OBJECT {
+        "object"
+    } else {
+        "other"
+    }
+}
+
+wrap_task! {
+    struct RecordBlockedTask {
+        state: Arc<Mutex<SharedState>>,
+        tab_id: TabId,
+        blocked_url: String,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let wid = {
+                let Ok(mut guard) = self.state.lock() else {
+                    return;
+                };
+                if let Ok(mut b) = guard.blocker.write() {
+                    b.record_blocked(&self.blocked_url);
+                }
+                guard.core.increment_tab_blocked(self.tab_id)
+            };
+            if let Some(window_id) = wid {
+                broadcast_window_state(&self.state, window_id);
+            }
+            broadcast_blocker_all(&self.state);
+        }
+    }
+}
+
+wrap_task! {
+    struct BroadcastBlockerTask {
+        state: Arc<Mutex<SharedState>>,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            broadcast_blocker_all(&self.state);
         }
     }
 }

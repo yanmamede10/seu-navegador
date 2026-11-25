@@ -69,11 +69,11 @@
       <i class="fa-solid fa-microchip" aria-hidden="true"></i>
       <span data-seu-bind="memory.badgeText">RAM -- MB</span>
     </button>
-    <span class="y2k-blocker-pill">
+    <button type="button" class="y2k-blocker-pill" data-seu-action="overlay.toggleBlocker" data-seu-title-t="badge.blocker">
       <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
       <span data-seu-bind="blocker.totalBlocked">0</span>
       <span data-seu-t="y2k.blocked">bloqueados</span>
-    </span>
+    </button>
     <button type="button" class="y2k-nav-btn y2k-menu-btn" data-seu-action="overlay.toggleMenu" data-seu-title-t="nav.menu" aria-label="Menu">
       <i class="fa-solid fa-bars" aria-hidden="true"></i>
     </button>

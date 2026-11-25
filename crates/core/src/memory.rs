@@ -282,6 +282,7 @@ mod tests {
             group_id: None,
             has_thumbnail: false,
             sleep_protected_reason: None,
+            blocked_count: 0,
         }
     }
 

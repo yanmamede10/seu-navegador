@@ -20,6 +20,7 @@ export interface TabInfo {
   group_id: number | null;
   has_thumbnail?: boolean;
   sleep_protected_reason?: string | null;
+  blocked_count?: number;
 }
 
 export interface WindowSnapshot {
@@ -54,6 +55,15 @@ export interface MemoryStats {
   shared_renderer_detected: boolean;
 }
 
+export interface BlockerStats {
+  enabled: boolean;
+  total_blocked: number;
+  allowlisted_domains: string[];
+  recent_blocked: string[];
+  lists_loaded: number;
+  last_updated_secs: number | null;
+}
+
 export interface CoreSettings {
   locale: "pt-br" | "en";
   search_engine: "duck-duck-go" | "google" | "brave" | "startpage";
@@ -62,6 +72,8 @@ export interface CoreSettings {
   shortcuts?: Record<string, string>;
   quick_shortcuts?: QuickShortcut[];
   memory_policy?: MemoryPolicy;
+  blocker_enabled?: boolean;
+  blocker_allowlist?: string[];
 }
 
 export interface DetectedBrowserProfile {
@@ -131,6 +143,7 @@ export type BridgeEvent =
   | { type: "settings"; settings: CoreSettings }
   | { type: "theme"; theme: LoadedTheme }
   | { type: "memory"; stats: MemoryStats }
+  | { type: "blocker"; stats: BlockerStats }
   | { type: "overlay"; panel: string }
   | { type: "focusOmnibox" }
   | { type: "toggleMenu" };

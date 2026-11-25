@@ -3,6 +3,7 @@ import {
   callBridge,
   getWindowIdFromQuery,
   onBridgeEvent,
+  type BlockerStats,
   type CoreSettings,
   type LoadedTheme,
   type MemoryStats,
@@ -14,7 +15,7 @@ const windowId = getWindowIdFromQuery();
 const menuList = document.getElementById("menu-list") as HTMLDivElement;
 
 let openedAt = 0;
-let currentPanel: "menu" | "memory" = "menu";
+let currentPanel: "menu" | "memory" | "blocker" = "menu";
 let currentSnapshot: WindowSnapshot | null = null;
 let currentMemory: MemoryStats = {
   total_private_mb: 0,
@@ -24,6 +25,14 @@ let currentMemory: MemoryStats = {
   sleeping_tabs_count: 0,
   saved_mb: 0,
   shared_renderer_detected: false,
+};
+let currentBlocker: BlockerStats = {
+  enabled: true,
+  total_blocked: 0,
+  allowlisted_domains: [],
+  recent_blocked: [],
+  lists_loaded: 1,
+  last_updated_secs: null,
 };
 let currentSettings: CoreSettings = {
   locale: "pt-br",
@@ -78,6 +87,8 @@ function addActionButton(iconClass: string, label: string, onClick: () => void):
 function renderActivePanel(): void {
   if (currentPanel === "memory") {
     renderMemoryPopover();
+  } else if (currentPanel === "blocker") {
+    renderBlockerPopover();
   } else {
     renderMenu();
   }
@@ -337,15 +348,146 @@ function renderMemoryPopover(): void {
   menuList.appendChild(cfgBtn);
 }
 
+function extractSiteHost(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.hostname.toLowerCase().replace(/^www\./, "");
+    }
+  } catch {
+    // Ignore internal URLs.
+  }
+  return "";
+}
+
+function renderBlockerPopover(): void {
+  menuList.innerHTML = "";
+  menuList.style.height = "100%";
+
+  const header = document.createElement("div");
+  header.className = "menu-label";
+  header.innerHTML = `<i class="fa-solid fa-shield-halved" aria-hidden="true"></i> ${l("Bloqueador de Anúncios", "Ad & Tracker Blocker")}`;
+  menuList.appendChild(header);
+
+  const activeTab = currentSnapshot?.tabs.find(
+    (tab) => tab.id === currentSnapshot?.active_tab_id,
+  );
+  const siteHost = activeTab ? extractSiteHost(activeTab.url) : "";
+  const siteAllowlisted =
+    siteHost.length > 0 &&
+    currentBlocker.allowlisted_domains.some(
+      (d) => siteHost === d || siteHost.endsWith(`.${d}`),
+    );
+
+  const grid = document.createElement("div");
+  grid.className = "mem-stats-grid";
+  const boxes: [string, string][] = [
+    [`${activeTab?.blocked_count ?? 0}`, l("Nesta aba", "On this tab")],
+    [`${currentBlocker.total_blocked}`, l("Total bloqueado", "Total blocked")],
+    [
+      currentBlocker.enabled ? "ON" : "OFF",
+      l("Proteção global", "Global shield"),
+    ],
+    [
+      `${currentBlocker.lists_loaded}`,
+      l("Listas ativas", "Active lists"),
+    ],
+  ];
+  for (const [val, lbl] of boxes) {
+    const box = document.createElement("div");
+    box.className = "mem-stat-box";
+    const v = document.createElement("span");
+    v.className = "mem-stat-val";
+    v.textContent = val;
+    const tEl = document.createElement("span");
+    tEl.className = "mem-stat-lbl";
+    tEl.textContent = lbl;
+    box.appendChild(v);
+    box.appendChild(tEl);
+    grid.appendChild(box);
+  }
+  menuList.appendChild(grid);
+
+  const globalBtn = document.createElement("button");
+  globalBtn.type = "button";
+  globalBtn.className = "menu-btn";
+  globalBtn.innerHTML = `<i class="fa-solid ${currentBlocker.enabled ? "fa-toggle-on" : "fa-toggle-off"}" aria-hidden="true"></i><span>${currentBlocker.enabled ? l("Desativar bloqueador global", "Disable blocker globally") : l("Ativar bloqueador global", "Enable blocker globally")}</span>`;
+  globalBtn.addEventListener("click", () => {
+    void callBridge<BlockerStats>("blocker.setEnabled", {
+      enabled: !currentBlocker.enabled,
+    }).then((stats) => {
+      if (stats) currentBlocker = stats;
+      renderActivePanel();
+    });
+  });
+  menuList.appendChild(globalBtn);
+
+  if (siteHost) {
+    const siteBtn = document.createElement("button");
+    siteBtn.type = "button";
+    siteBtn.className = "menu-btn";
+    siteBtn.innerHTML = `<i class="fa-solid ${siteAllowlisted ? "fa-shield-halved" : "fa-circle-pause"}" aria-hidden="true"></i><span>${siteAllowlisted ? l(`Reativar em ${siteHost}`, `Re-enable on ${siteHost}`) : l(`Pausar em ${siteHost} (allowlist)`, `Pause on ${siteHost} (allowlist)`)}</span>`;
+    siteBtn.addEventListener("click", () => {
+      void callBridge<BlockerStats>("blocker.toggleSite", {
+        domain: siteHost,
+      }).then((stats) => {
+        if (stats) currentBlocker = stats;
+        if (activeTab) {
+          void callBridge("tabs.reload", { tab_id: activeTab.id });
+        }
+        renderActivePanel();
+      });
+    });
+    menuList.appendChild(siteBtn);
+  }
+
+  const recentLbl = document.createElement("div");
+  recentLbl.className = "menu-label";
+  recentLbl.textContent = `${l("Bloqueados recentemente", "Recently blocked")} (${currentBlocker.recent_blocked.length})`;
+  menuList.appendChild(recentLbl);
+
+  const list = document.createElement("div");
+  list.className = "mem-tabs-list";
+  if (currentBlocker.recent_blocked.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "mem-stat-lbl";
+    empty.style.padding = "4px";
+    empty.textContent = l(
+      "Nenhum anúncio ou rastreador interceptado nesta sessão ainda.",
+      "No ads or trackers blocked yet in this session.",
+    );
+    list.appendChild(empty);
+  } else {
+    for (const host of currentBlocker.recent_blocked) {
+      const row = document.createElement("div");
+      row.className = "mem-stat-box";
+      row.innerHTML = `<span class="mem-tab-title">${host}</span>`;
+      list.appendChild(row);
+    }
+  }
+  menuList.appendChild(list);
+
+  const updateBtn = document.createElement("button");
+  updateBtn.type = "button";
+  updateBtn.className = "menu-btn";
+  updateBtn.innerHTML = `<i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i><span>${l("Atualizar listas (EasyList / uBlock)", "Update filter lists (EasyList / uBlock)")}</span>`;
+  updateBtn.addEventListener("click", () => {
+    void callBridge("blocker.updateLists");
+  });
+  menuList.appendChild(updateBtn);
+}
+
 async function refreshSnapshotAndMemory(): Promise<void> {
-  const [snap, mem] = await Promise.all([
+  const [snap, mem, blk] = await Promise.all([
     callBridge<WindowSnapshot>("windows.getSnapshot", { window_id: windowId }).catch(
       () => undefined,
     ),
     callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
+    callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
   ]);
   if (snap) currentSnapshot = snap;
   if (mem) currentMemory = mem;
+  if (blk) currentBlocker = blk;
   renderActivePanel();
 }
 
@@ -364,14 +506,24 @@ window.addEventListener("blur", () => {
 onBridgeEvent((event) => {
   if (event.type === "overlay" && event.panel !== "closed") {
     openedAt = Date.now();
-    currentPanel = event.panel === "memory" ? "memory" : "menu";
+    currentPanel =
+      event.panel === "memory"
+        ? "memory"
+        : event.panel === "blocker"
+          ? "blocker"
+          : "menu";
     void refreshSnapshotAndMemory();
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     if (currentPanel === "memory") renderActivePanel();
+  } else if (event.type === "blocker") {
+    currentBlocker = event.stats;
+    if (currentPanel === "blocker") renderActivePanel();
   } else if (event.type === "state") {
     currentSnapshot = event.snapshot;
-    if (currentPanel === "memory") renderActivePanel();
+    if (currentPanel === "memory" || currentPanel === "blocker") {
+      renderActivePanel();
+    }
   } else if (event.type === "settings") {
     currentSettings = event.settings;
     setLocale(event.settings.locale);
@@ -383,13 +535,14 @@ onBridgeEvent((event) => {
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, snap, mem] = await Promise.all([
+    const [settings, theme, snap, mem, blk] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<WindowSnapshot>("windows.getSnapshot", { window_id: windowId }).catch(
         () => undefined,
       ),
       callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
+      callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
     ]);
     if (settings) {
       currentSettings = settings;
@@ -403,6 +556,9 @@ async function bootstrap(): Promise<void> {
     }
     if (mem) {
       currentMemory = mem;
+    }
+    if (blk) {
+      currentBlocker = blk;
     }
   } catch {
     // Keep defaults.

@@ -4,6 +4,7 @@
 //! before dispatching them to `BrowserCore` or window/engine actions.
 
 use serde::{Deserialize, Serialize};
+use seu_blocker::{BlockerService, BlockerStats};
 use seu_core::{
     memory::{MemoryPolicy, MemoryStats},
     shortcuts::QuickShortcut,
@@ -178,6 +179,15 @@ pub enum BridgeRequest {
     MemorySleepInactive,
     #[serde(rename = "memory.setPolicy")]
     MemorySetPolicy { policy: MemoryPolicy },
+
+    #[serde(rename = "blocker.getStats")]
+    BlockerGetStats,
+    #[serde(rename = "blocker.setEnabled")]
+    BlockerSetEnabled { enabled: bool },
+    #[serde(rename = "blocker.toggleSite")]
+    BlockerToggleSite { domain: String },
+    #[serde(rename = "blocker.updateLists")]
+    BlockerUpdateLists,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -221,6 +231,7 @@ pub enum BridgeResponse {
     TabsSlept {
         count: usize,
     },
+    BlockerStats(BlockerStats),
 }
 
 /// Side-effect commands that the engine/window layer must execute after
@@ -314,6 +325,8 @@ pub enum HostEffect {
     BroadcastSettings,
     BroadcastTheme,
     BroadcastMemory,
+    BroadcastBlocker,
+    UpdateBlockerLists,
 }
 
 pub struct DispatchOutput {
@@ -329,6 +342,7 @@ pub fn handle_raw_request(
     core: &mut BrowserCore,
     themes: &ThemeRegistry,
     storage: Option<&Storage>,
+    blocker: &mut BlockerService,
 ) -> Result<DispatchOutput, BridgeError> {
     if !is_privileged_origin(origin_url) {
         return Err(BridgeError::OriginDenied);
@@ -339,7 +353,7 @@ pub fn handle_raw_request(
 
     let req: BridgeRequest =
         serde_json::from_str(raw_json).map_err(|e| BridgeError::InvalidJson(e.to_string()))?;
-    dispatch_request(req, core, themes, storage)
+    dispatch_request(req, core, themes, storage, blocker)
 }
 
 pub fn dispatch_request(
@@ -347,6 +361,7 @@ pub fn dispatch_request(
     core: &mut BrowserCore,
     themes: &ThemeRegistry,
     storage: Option<&Storage>,
+    blocker: &mut BlockerService,
 ) -> Result<DispatchOutput, BridgeError> {
     match req {
         BridgeRequest::WindowGetSnapshot { window_id } => {
@@ -940,6 +955,30 @@ pub fn dispatch_request(
                 effects: vec![HostEffect::BroadcastSettings],
             })
         }
+        BridgeRequest::BlockerGetStats => Ok(DispatchOutput {
+            response: BridgeResponse::BlockerStats(blocker.stats()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::BlockerSetEnabled { enabled } => {
+            blocker.set_enabled(enabled);
+            core.settings.blocker_enabled = enabled;
+            Ok(DispatchOutput {
+                response: BridgeResponse::BlockerStats(blocker.stats()),
+                effects: vec![HostEffect::BroadcastBlocker, HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::BlockerToggleSite { domain } => {
+            let _ = blocker.toggle_for_site(&domain);
+            core.settings.blocker_allowlist = blocker.allowlisted_domains();
+            Ok(DispatchOutput {
+                response: BridgeResponse::BlockerStats(blocker.stats()),
+                effects: vec![HostEffect::BroadcastBlocker, HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::BlockerUpdateLists => Ok(DispatchOutput {
+            response: BridgeResponse::BlockerStats(blocker.stats()),
+            effects: vec![HostEffect::UpdateBlockerLists],
+        }),
     }
 }
 
@@ -958,12 +997,14 @@ mod tests {
     fn denies_non_seu_origins() {
         let mut core = BrowserCore::new();
         let themes = test_registry();
+        let mut blocker = BlockerService::new();
         let err = handle_raw_request(
             "https://evil.example/",
             r#"{"method":"settings.get"}"#,
             &mut core,
             &themes,
             None,
+            &mut blocker,
         )
         .err();
         assert_eq!(err, Some(BridgeError::OriginDenied));
@@ -973,12 +1014,20 @@ mod tests {
     fn allows_seu_origin_and_dispatches_requests() {
         let mut core = BrowserCore::new();
         let themes = test_registry();
+        let mut blocker = BlockerService::new();
         let (win_id, _) = core.create_window(false, None);
 
         let payload = format!(
             r#"{{"method":"tabs.create","params":{{"window_id":{win_id},"url":"docs.rs"}}}}"#
         );
-        let out = handle_raw_request("seu://shell/", &payload, &mut core, &themes, None);
+        let out = handle_raw_request(
+            "seu://shell/",
+            &payload,
+            &mut core,
+            &themes,
+            None,
+            &mut blocker,
+        );
         assert!(out.is_ok());
         if let Ok(output) = out {
             assert!(matches!(
@@ -994,6 +1043,7 @@ mod tests {
             &mut core,
             &themes,
             None,
+            &mut blocker,
         );
         assert!(matches!(
             theme_out.map(|o| o.response),
@@ -1006,20 +1056,43 @@ mod tests {
             &mut core,
             &themes,
             None,
+            &mut blocker,
         );
         assert!(rebind.is_ok());
         assert_eq!(
             core.settings.shortcuts.get("tab.new").map(String::as_str),
             Some("Ctrl+Q")
         );
+
+        let allow = handle_raw_request(
+            "seu://overlay/",
+            r#"{"method":"blocker.toggleSite","params":{"domain":"example.com"}}"#,
+            &mut core,
+            &themes,
+            None,
+            &mut blocker,
+        );
+        assert!(allow.is_ok());
+        assert!(core
+            .settings
+            .blocker_allowlist
+            .contains(&"example.com".to_string()));
     }
 
     #[test]
     fn rejects_invalid_json_and_invalid_locale() {
         let mut core = BrowserCore::new();
         let themes = test_registry();
+        let mut blocker = BlockerService::new();
         assert!(matches!(
-            handle_raw_request("seu://shell/", "{not-json", &mut core, &themes, None),
+            handle_raw_request(
+                "seu://shell/",
+                "{not-json",
+                &mut core,
+                &themes,
+                None,
+                &mut blocker
+            ),
             Err(BridgeError::InvalidJson(_))
         ));
         assert!(matches!(
@@ -1028,7 +1101,8 @@ mod tests {
                 r#"{"method":"settings.setLocale","params":{"locale":"xx-YY"}}"#,
                 &mut core,
                 &themes,
-                None
+                None,
+                &mut blocker
             ),
             Err(BridgeError::InvalidArgument(_))
         ));

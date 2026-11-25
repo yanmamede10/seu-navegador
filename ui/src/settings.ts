@@ -4,6 +4,7 @@ import {
   callBridge,
   getWindowIdFromQuery,
   onBridgeEvent,
+  type BlockerStats,
   type CoreSettings,
   type DataSummaryPayload,
   type DetectedBrowserProfile,
@@ -19,7 +20,7 @@ import { setLocale } from "./i18n";
 const root = document.getElementById("settings-root") as HTMLDivElement;
 const windowId = getWindowIdFromQuery();
 
-type SettingsTab = "shortcuts" | "memory" | "import" | "quick";
+type SettingsTab = "shortcuts" | "memory" | "blocker" | "import" | "quick";
 
 let activeTab: SettingsTab = "shortcuts";
 let currentSettings: CoreSettings = {
@@ -44,6 +45,14 @@ let currentMemory: MemoryStats = {
   sleeping_tabs_count: 0,
   saved_mb: 0,
   shared_renderer_detected: false,
+};
+let currentBlocker: BlockerStats = {
+  enabled: true,
+  total_blocked: 0,
+  allowlisted_domains: [],
+  recent_blocked: [],
+  lists_loaded: 1,
+  last_updated_secs: null,
 };
 let detectedProfiles: DetectedBrowserProfile[] = [];
 let selectedProfileId = "";
@@ -265,10 +274,11 @@ function render(): void {
   const tabs = document.createElement("div");
   tabs.className = "settings-tabs";
   const tabDefs: [SettingsTab, string, string][] = [
-    ["shortcuts", "fa-solid fa-keyboard", l("Atalhos de teclado", "Keyboard shortcuts")],
+    ["shortcuts", "fa-solid fa-keyboard", l("Atalhos", "Shortcuts")],
     ["memory", "fa-solid fa-microchip", l("Memória", "Memory")],
-    ["import", "fa-solid fa-file-import", l("Importar navegador", "Import browser")],
-    ["quick", "fa-solid fa-compact-disc", l("CDs da Nova Aba", "New Tab CDs")],
+    ["blocker", "fa-solid fa-shield-halved", l("Bloqueador", "Blocker")],
+    ["import", "fa-solid fa-file-import", l("Importar", "Import")],
+    ["quick", "fa-solid fa-compact-disc", l("CDs", "CDs")],
   ];
   for (const [id, icon, label] of tabDefs) {
     const btn = document.createElement("button");
@@ -299,6 +309,8 @@ function render(): void {
     shell.appendChild(renderShortcutsPanel());
   } else if (activeTab === "memory") {
     shell.appendChild(renderMemoryPanel());
+  } else if (activeTab === "blocker") {
+    shell.appendChild(renderBlockerPanel());
   } else if (activeTab === "import") {
     shell.appendChild(renderImportPanel());
   } else {
@@ -907,6 +919,121 @@ function renderMemoryPanel(): HTMLElement {
   return card;
 }
 
+function renderBlockerPanel(): HTMLElement {
+  const card = document.createElement("section");
+  card.className = "panel-card";
+
+  const head = document.createElement("div");
+  head.className = "panel-head";
+  head.innerHTML = `<h2><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span>${l("Bloqueador de Anúncios e Rastreadores", "Ad & Tracker Blocker")}</span></h2>`;
+
+  const updateBtn = document.createElement("button");
+  updateBtn.type = "button";
+  updateBtn.className = "btn btn-primary";
+  updateBtn.innerHTML = `<i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i><span>${l("Atualizar listas (EasyList / uBlock)", "Update lists (EasyList / uBlock)")}</span>`;
+  updateBtn.addEventListener("click", () => {
+    void callBridge("blocker.updateLists").then(() => {
+      statusMessage = {
+        text: l(
+          "Atualização em segundo plano iniciada (EasyList + EasyPrivacy + uBlock Filters).",
+          "Background list update started (EasyList + EasyPrivacy + uBlock Filters).",
+        ),
+        isError: false,
+      };
+      render();
+    });
+  });
+  head.appendChild(updateBtn);
+  card.appendChild(head);
+
+  const summary = document.createElement("p");
+  summary.className = "muted";
+  summary.textContent = l(
+    `Motor Brave adblock com filtros de rede, cosméticos e scriptlets (YouTube). Bloqueados nesta sessão: ${currentBlocker.total_blocked} | Listas ativas: ${currentBlocker.lists_loaded}.`,
+    `Brave adblock engine with network, cosmetic & scriptlet filters (YouTube). Blocked this session: ${currentBlocker.total_blocked} | Active lists: ${currentBlocker.lists_loaded}.`,
+  );
+  card.appendChild(summary);
+
+  const checks = document.createElement("div");
+  checks.className = "checks-row";
+  checks.appendChild(
+    makeCheckbox(
+      l("Ativar bloqueador de anúncios e rastreadores", "Enable ad & tracker blocker"),
+      currentBlocker.enabled,
+      (v) => {
+        void callBridge<BlockerStats>("blocker.setEnabled", { enabled: v }).then((stats) => {
+          if (stats) currentBlocker = stats;
+          render();
+        });
+      },
+    ),
+  );
+  card.appendChild(checks);
+
+  const allowTitle = document.createElement("div");
+  allowTitle.className = "shortcut-group-title";
+  allowTitle.textContent = l(
+    "Sites na allowlist (bloqueador pausado)",
+    "Allowlisted sites (blocker paused)",
+  );
+  card.appendChild(allowTitle);
+
+  const form = document.createElement("form");
+  form.className = "form-inline";
+  const domInput = document.createElement("input");
+  domInput.className = "text-input";
+  domInput.placeholder = "ex: exemplo.com";
+  const addBtn = document.createElement("button");
+  addBtn.type = "submit";
+  addBtn.className = "btn btn-primary";
+  addBtn.innerHTML = `<i class="fa-solid fa-plus" aria-hidden="true"></i><span>${l("Adicionar à allowlist", "Add to allowlist")}</span>`;
+  form.appendChild(domInput);
+  form.appendChild(addBtn);
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const cleaned = domInput.value
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .split("/")[0];
+    if (!cleaned) return;
+    if (!currentBlocker.allowlisted_domains.includes(cleaned)) {
+      void callBridge<BlockerStats>("blocker.toggleSite", { domain: cleaned }).then((stats) => {
+        if (stats) currentBlocker = stats;
+        render();
+      });
+    }
+  });
+  card.appendChild(form);
+
+  const list = document.createElement("div");
+  list.className = "shortcut-list";
+  for (const dom of currentBlocker.allowlisted_domains) {
+    const row = document.createElement("div");
+    row.className = "shortcut-row";
+    const span = document.createElement("span");
+    span.className = "shortcut-name";
+    span.textContent = dom;
+    row.appendChild(span);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn btn-danger";
+    del.innerHTML = `<i class="fa-solid fa-trash" aria-hidden="true"></i>`;
+    del.addEventListener("click", () => {
+      void callBridge<BlockerStats>("blocker.toggleSite", { domain: dom }).then((stats) => {
+        if (stats) currentBlocker = stats;
+        render();
+      });
+    });
+    row.appendChild(del);
+    list.appendChild(row);
+  }
+  card.appendChild(list);
+
+  return card;
+}
+
 function makeCheckbox(
   label: string,
   checked: boolean,
@@ -941,14 +1068,18 @@ onBridgeEvent((event) => {
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     if (activeTab === "memory") render();
+  } else if (event.type === "blocker") {
+    currentBlocker = event.stats;
+    if (activeTab === "blocker") render();
   }
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme, mem] = await Promise.all([
+  const [settings, theme, mem, blk] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
     callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
+    callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
   ]);
   if (settings) {
     currentSettings = settings;
@@ -959,6 +1090,9 @@ async function bootstrap(): Promise<void> {
   }
   if (mem) {
     currentMemory = mem;
+  }
+  if (blk) {
+    currentBlocker = blk;
   }
   await refreshProfilesAndData();
 }

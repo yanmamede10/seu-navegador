@@ -255,6 +255,15 @@ impl NativeWindowHost for Win32WindowHost {
                         warn!("Failed to persist memory_policy setting: {err}");
                     }
                 }
+                let blk = if settings.blocker_enabled { "1" } else { "0" };
+                if let Err(err) = db.set_setting("blocker_enabled", blk) {
+                    warn!("Failed to persist blocker_enabled setting: {err}");
+                }
+                if let Ok(json) = serde_json::to_string(&settings.blocker_allowlist) {
+                    if let Err(err) = db.set_setting("blocker_allowlist", &json) {
+                        warn!("Failed to persist blocker_allowlist setting: {err}");
+                    }
+                }
             }
         }
     }
@@ -306,6 +315,14 @@ pub fn load_persisted_settings(storage: &Option<Storage>) -> CoreSettings {
     if let Ok(Some(raw_mem)) = db.get_setting("memory_policy") {
         if let Ok(parsed) = serde_json::from_str::<seu_core::memory::MemoryPolicy>(&raw_mem) {
             settings.memory_policy = parsed;
+        }
+    }
+    if let Ok(Some(blk)) = db.get_setting("blocker_enabled") {
+        settings.blocker_enabled = blk != "0";
+    }
+    if let Ok(Some(raw_allow)) = db.get_setting("blocker_allowlist") {
+        if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&raw_allow) {
+            settings.blocker_allowlist = parsed;
         }
     }
 

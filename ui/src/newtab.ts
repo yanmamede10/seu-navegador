@@ -3,6 +3,7 @@ import {
   callBridge,
   getWindowIdFromQuery,
   onBridgeEvent,
+  type BlockerStats,
   type CoreSettings,
   type LoadedTheme,
   type MemoryStats,
@@ -46,6 +47,14 @@ let currentMemory: MemoryStats = {
   sleeping_tabs_count: 0,
   saved_mb: 0,
   shared_renderer_detected: false,
+};
+let currentBlocker: BlockerStats = {
+  enabled: true,
+  total_blocked: 0,
+  allowlisted_domains: [],
+  recent_blocked: [],
+  lists_loaded: 1,
+  last_updated_secs: null,
 };
 let currentSettings: CoreSettings = {
   locale: "pt-br",
@@ -218,8 +227,8 @@ function renderAll(): void {
             : "nenhuma mídia em reprodução",
       },
       blocker: {
-        totalBlocked: 0,
-        statusLabel: "ON",
+        totalBlocked: currentBlocker.total_blocked,
+        statusLabel: currentBlocker.enabled ? "ON" : "OFF",
       },
       gameMode: {
         enabled: currentSettings.game_mode_enabled,
@@ -263,12 +272,15 @@ onBridgeEvent((event) => {
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     renderAll();
+  } else if (event.type === "blocker") {
+    currentBlocker = event.stats;
+    renderAll();
   }
 });
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, themes, snap, mem] = await Promise.all([
+    const [settings, theme, themes, snap, mem, blk] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<ThemeSummary[]>("themes.list").catch(() => []),
@@ -276,6 +288,7 @@ async function bootstrap(): Promise<void> {
         window_id: windowId,
       }).catch(() => undefined),
       callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
+      callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
     ]);
 
     if (settings) {
@@ -293,6 +306,9 @@ async function bootstrap(): Promise<void> {
     }
     if (mem) {
       currentMemory = mem;
+    }
+    if (blk) {
+      currentBlocker = blk;
     }
     if (theme) {
       mountTheme(theme);

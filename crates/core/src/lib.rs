@@ -152,6 +152,8 @@ pub struct TabInfo {
     pub has_thumbnail: bool,
     #[serde(default)]
     pub sleep_protected_reason: Option<SleepBlockReason>,
+    #[serde(default)]
+    pub blocked_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,6 +185,14 @@ pub struct CoreSettings {
     pub quick_shortcuts: Vec<QuickShortcut>,
     #[serde(default)]
     pub memory_policy: MemoryPolicy,
+    #[serde(default = "default_true")]
+    pub blocker_enabled: bool,
+    #[serde(default)]
+    pub blocker_allowlist: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for CoreSettings {
@@ -195,6 +205,8 @@ impl Default for CoreSettings {
             shortcuts: default_chrome_shortcuts(),
             quick_shortcuts: default_quick_shortcuts(),
             memory_policy: MemoryPolicy::default(),
+            blocker_enabled: true,
+            blocker_allowlist: Vec::new(),
         }
     }
 }
@@ -344,6 +356,7 @@ impl BrowserCore {
             group_id: None,
             has_thumbnail: false,
             sleep_protected_reason: None,
+            blocked_count: 0,
         };
         self.tabs.insert(tab_id, tab);
 
@@ -624,11 +637,12 @@ impl BrowserCore {
 
         if let Some(u) = url {
             if u != tab.url {
-                // Reset per-document dirty/scroll flags on new URL load.
+                // Reset per-document dirty/scroll/blocker counters on new URL load.
                 meta.dirty_form = false;
                 meta.has_beforeunload = false;
                 meta.scroll_x = 0;
                 meta.scroll_y = 0;
+                tab.blocked_count = 0;
             }
             tab.url = u.clone();
             meta.record_navigation(u, tab.title.clone());
@@ -760,6 +774,41 @@ impl BrowserCore {
         }
         self.memory_stats.saved_mb = self.memory_stats.saved_mb.saturating_add(delta_mb);
         self.memory_stats.shared_renderer_detected = shared_renderer;
+    }
+
+    pub fn record_batch_sleep_ram_delta(
+        &mut self,
+        tab_ids: &[TabId],
+        total_delta_mb: u32,
+        shared_renderer: bool,
+    ) {
+        let sleeping_ids: Vec<TabId> = tab_ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.tabs
+                    .get(id)
+                    .map(|t| t.state == TabLifecycleState::Sleeping)
+                    .unwrap_or(false)
+            })
+            .collect();
+        if sleeping_ids.is_empty() {
+            return;
+        }
+        let per_tab = total_delta_mb / (sleeping_ids.len() as u32);
+        for tid in sleeping_ids {
+            if let Some(m) = self.tab_meta.get_mut(&tid) {
+                m.saved_mb = per_tab;
+            }
+        }
+        self.memory_stats.saved_mb = self.memory_stats.saved_mb.saturating_add(total_delta_mb);
+        self.memory_stats.shared_renderer_detected = shared_renderer;
+    }
+
+    pub fn increment_tab_blocked(&mut self, tab_id: TabId) -> Option<WindowId> {
+        let tab = self.tabs.get_mut(&tab_id)?;
+        tab.blocked_count = tab.blocked_count.saturating_add(1);
+        Some(tab.window_id)
     }
 
     pub fn update_os_memory_metrics(

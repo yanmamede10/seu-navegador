@@ -3,6 +3,7 @@ import {
   callBridge,
   getWindowIdFromQuery,
   onBridgeEvent,
+  type BlockerStats,
   type CoreSettings,
   type LoadedTheme,
   type MemoryStats,
@@ -25,7 +26,15 @@ let currentMemory: MemoryStats = {
   saved_mb: 0,
   shared_renderer_detected: false,
 };
-let activeOverlayPanel: "menu" | "memory" | null = null;
+let currentBlocker: BlockerStats = {
+  enabled: true,
+  total_blocked: 0,
+  allowlisted_domains: [],
+  recent_blocked: [],
+  lists_loaded: 1,
+  last_updated_secs: null,
+};
+let activeOverlayPanel: "menu" | "memory" | "blocker" | null = null;
 
 const runtime = new DeclarativeRuntime(mountEl, {
   onStartDragWindow: () => {
@@ -113,11 +122,14 @@ const runtime = new DeclarativeRuntime(mountEl, {
       case "overlay.toggleMemory":
         toggleOverlayPanel("memory");
         break;
+      case "overlay.toggleBlocker":
+        toggleOverlayPanel("blocker");
+        break;
     }
   },
 });
 
-function toggleOverlayPanel(panel: "menu" | "memory"): void {
+function toggleOverlayPanel(panel: "menu" | "memory" | "blocker"): void {
   if (activeOverlayPanel === panel) {
     activeOverlayPanel = null;
     void callBridge("overlay.close", { window_id: windowId });
@@ -125,8 +137,8 @@ function toggleOverlayPanel(panel: "menu" | "memory"): void {
   }
   const dpr = window.devicePixelRatio || 1;
   const rect = mountEl.getBoundingClientRect();
-  const widthCss = panel === "memory" ? 350 : 286;
-  const heightCss = panel === "memory" ? 440 : 410;
+  const widthCss = panel === "menu" ? 286 : 350;
+  const heightCss = panel === "menu" ? 410 : 440;
   const xCss = Math.max(8, window.innerWidth - widthCss - 10);
   const yCss = rect.height + 4;
   activeOverlayPanel = panel;
@@ -145,7 +157,8 @@ document.addEventListener("mousedown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (
     target?.closest('[data-seu-action="overlay.toggleMenu"]') ||
-    target?.closest('[data-seu-action="overlay.toggleMemory"]')
+    target?.closest('[data-seu-action="overlay.toggleMemory"]') ||
+    target?.closest('[data-seu-action="overlay.toggleBlocker"]')
   ) {
     return;
   }
@@ -237,7 +250,10 @@ function renderAll(): void {
             : "RAM -- MB",
       },
       blocker: {
-        totalBlocked: 0,
+        totalBlocked:
+          activeTab && !activeTab.url.startsWith("seu://")
+            ? (activeTab.blocked_count ?? 0)
+            : currentBlocker.total_blocked,
       },
     },
     {
@@ -277,6 +293,9 @@ onBridgeEvent((event) => {
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     renderAll();
+  } else if (event.type === "blocker") {
+    currentBlocker = event.stats;
+    renderAll();
   } else if (event.type === "overlay" && event.panel === "closed") {
     activeOverlayPanel = null;
   } else if (event.type === "toggleMenu") {
@@ -292,13 +311,14 @@ onBridgeEvent((event) => {
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, snap, mem] = await Promise.all([
+    const [settings, theme, snap, mem, blk] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<WindowSnapshot>("windows.getSnapshot", {
         window_id: windowId,
       }).catch(() => undefined),
       callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
+      callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
     ]);
 
     if (settings?.locale) {
@@ -309,6 +329,9 @@ async function bootstrap(): Promise<void> {
     }
     if (mem) {
       currentMemory = mem;
+    }
+    if (blk) {
+      currentBlocker = blk;
     }
     if (theme) {
       mountTheme(theme);

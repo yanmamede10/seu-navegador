@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 include_dir.workspace = true
 serde_json.workspace = true
+seu-blocker = { path = "../blocker" }
 seu-bridge = { path = "../bridge" }
 seu-core = { path = "../core" }
 seu-storage = { path = "../storage" }
