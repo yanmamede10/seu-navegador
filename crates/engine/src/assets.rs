@@ -72,6 +72,7 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
             "history" => "history.html",
             "bookmarks" => "bookmarks.html",
             "downloads" => "downloads.html",
+            "studio" => "studio.html",
             _ => {
                 return placeholder_internal_page(&host);
             }

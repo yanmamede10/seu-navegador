@@ -273,6 +273,9 @@ impl NativeWindowHost for Win32WindowHost {
                 if let Err(err) = db.set_setting("restore_session_on_startup", rs) {
                     warn!("Failed to persist restore_session_on_startup setting: {err}");
                 }
+                if let Some(ref ws) = settings.studio_last_workspace {
+                    let _ = db.set_setting("studio_last_workspace", ws);
+                }
             }
         }
     }
@@ -336,6 +339,11 @@ pub fn load_persisted_settings(storage: &Option<Storage>) -> CoreSettings {
     }
     if let Ok(Some(rs)) = db.get_setting("restore_session_on_startup") {
         settings.restore_session_on_startup = rs != "0";
+    }
+    if let Ok(Some(ws)) = db.get_setting("studio_last_workspace") {
+        if !ws.trim().is_empty() {
+            settings.studio_last_workspace = Some(ws);
+        }
     }
 
     settings

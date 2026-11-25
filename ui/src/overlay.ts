@@ -152,6 +152,10 @@ function renderMenu(): void {
     void callBridge("split.toggle", { window_id: windowId });
   });
 
+  addActionButton("fa-solid fa-code", t("menu.studio"), () => {
+    void callBridge("studio.setMode", { window_id: windowId, mode: "split" });
+  });
+
   addActionButton("fa-solid fa-terminal", t("menu.devtools"), () => {
     void callBridge("devtools.toggle", { window_id: windowId });
   });

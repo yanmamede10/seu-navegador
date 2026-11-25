@@ -107,6 +107,7 @@ const SHORTCUT_CATALOG: ShortcutMeta[] = [
   { id: "overlay.toggleMenu", group: "ui", pt: "Abrir / fechar menu", en: "Toggle menu" },
   { id: "devtools.toggle", group: "ui", pt: "DevTools acoplado (F12)", en: "Docked DevTools (F12)" },
   { id: "split.toggle", group: "ui", pt: "Split View (duas abas lado a lado)", en: "Split View (two tabs side by side)" },
+  { id: "studio.toggle", group: "ui", pt: "Abrir / fechar Studio IDE (Split)", en: "Toggle Studio IDE (Split)" },
   { id: "bookmarks.toggle", group: "nav", pt: "Favoritar página atual", en: "Bookmark current page" },
   { id: "nav.openHistory", group: "nav", pt: "Abrir Histórico", en: "Open History" },
   { id: "nav.openDownloads", group: "nav", pt: "Abrir Downloads", en: "Open Downloads" },

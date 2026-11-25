@@ -10,6 +10,7 @@ serde_json.workspace = true
 seu-blocker = { path = "../blocker" }
 seu-core = { path = "../core" }
 seu-storage = { path = "../storage" }
+seu-studio = { path = "../studio" }
 seu-themes = { path = "../themes" }
 thiserror.workspace = true
 

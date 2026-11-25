@@ -23,6 +23,7 @@ use thiserror::Error;
 pub const NEWTAB_URL: &str = "seu://newtab/";
 pub const SHELL_URL: &str = "seu://shell/";
 pub const OVERLAY_URL: &str = "seu://overlay/";
+pub const STUDIO_URL: &str = "seu://studio/";
 
 pub type WindowId = u64;
 pub type TabId = u64;
@@ -244,6 +245,8 @@ pub struct CoreSettings {
     pub blocker_allowlist: Vec<String>,
     #[serde(default = "default_true")]
     pub restore_session_on_startup: bool,
+    #[serde(default)]
+    pub studio_last_workspace: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -263,6 +266,7 @@ impl Default for CoreSettings {
             blocker_enabled: true,
             blocker_allowlist: Vec::new(),
             restore_session_on_startup: true,
+            studio_last_workspace: None,
         }
     }
 }

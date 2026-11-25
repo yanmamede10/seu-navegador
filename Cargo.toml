@@ -6,6 +6,7 @@ members = [
     "crates/storage",
     "crates/blocker",
     "crates/themes",
+    "crates/studio",
     "crates/engine",
     "crates/app",
 ]

@@ -11,6 +11,7 @@ seu-blocker = { path = "../blocker" }
 seu-bridge = { path = "../bridge" }
 seu-core = { path = "../core" }
 seu-storage = { path = "../storage" }
+seu-studio = { path = "../studio" }
 seu-themes = { path = "../themes" }
 thiserror.workspace = true
 tracing.workspace = true

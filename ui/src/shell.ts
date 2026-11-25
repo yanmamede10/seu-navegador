@@ -76,7 +76,7 @@ const runtime = new DeclarativeRuntime(mountEl, {
       });
     }
   },
-  onAction: ({ action, item }) => {
+  onAction: ({ action, param, item }) => {
     const activeTabId = currentSnapshot?.active_tab_id;
     switch (action) {
       case "windows.minimize":
@@ -160,6 +160,12 @@ const runtime = new DeclarativeRuntime(mountEl, {
       case "split.toggle":
         void callBridge("split.toggle", { window_id: windowId });
         break;
+      case "studio.setMode":
+        void callBridge("studio.setMode", {
+          window_id: windowId,
+          mode: param || "split",
+        });
+        break;
       case "devtools.toggle":
         void callBridge("devtools.toggle", { window_id: windowId });
         break;
@@ -229,6 +235,15 @@ function renderAll(): void {
 
   const activeTab =
     currentSnapshot.tabs.find((tab) => tab.id === currentSnapshot?.active_tab_id) ?? null;
+
+  const isStudioActive = Boolean(activeTab?.url.startsWith("seu://studio/"));
+  const uiMode =
+    currentSnapshot.split_tab_id !== null && currentSnapshot.split_tab_id !== undefined
+      ? "split"
+      : isStudioActive
+        ? "studio"
+        : "browser";
+  document.documentElement.dataset.mode = uiMode;
 
   const groupMap = new Map(currentSnapshot.groups.map((g) => [g.id, g]));
 

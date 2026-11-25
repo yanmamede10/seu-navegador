@@ -460,6 +460,43 @@ body {
   color: #070B24;
 }
 
+.y2k-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 18px;
+  border: 2px solid var(--seu-accent);
+  background: var(--seu-bg);
+  flex-shrink: 0;
+}
+
+.y2k-mode-btn {
+  width: 28px;
+  height: 26px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--seu-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.y2k-mode-btn:hover {
+  color: #FFFFFF;
+}
+
+[data-mode="browser"] .y2k-mode-btn[data-mode="browser"],
+[data-mode="split"] .y2k-mode-btn[data-mode="split"],
+[data-mode="studio"] .y2k-mode-btn[data-mode="studio"] {
+  background: var(--seu-accent);
+  color: var(--seu-accent-text);
+}
+
 .y2k-ram-pill {
   min-height: 32px;
   display: inline-flex;

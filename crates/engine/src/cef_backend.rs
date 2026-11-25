@@ -22,12 +22,16 @@ use seu_blocker::{
     filter_lists_dir, needs_background_update, write_last_updated, BlockerService,
     UPSTREAM_LIST_URLS,
 };
-use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
+use seu_bridge::{apply_studio_mode, handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{
     shortcuts::{match_shortcut_vk, ShortcutAction},
     BrowserCore, CoreSettings, DevToolsDock, SavedSession, TabId, WindowId, WindowSnapshot,
 };
 use seu_storage::{DownloadItem as StoredDownloadItem, Storage};
+use seu_studio::{
+    runner::{TerminalNotifyFn, TerminalSnapshot},
+    StudioService,
+};
 use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -125,6 +129,7 @@ struct SharedState {
     themes: ThemeRegistry,
     storage: Arc<Mutex<Option<Storage>>>,
     blocker: Arc<RwLock<BlockerService>>,
+    studio: Arc<Mutex<StudioService>>,
     host: Arc<dyn NativeWindowHost>,
     router: Arc<BrowserSideRouter>,
     windows: HashMap<WindowId, WindowViews>,
@@ -200,6 +205,7 @@ impl CefEngine {
             themes,
             storage,
             blocker: Arc::new(RwLock::new(blocker)),
+            studio: Arc::new(Mutex::new(StudioService::new())),
             host,
             router: router.clone(),
             windows: HashMap::new(),
@@ -389,6 +395,7 @@ fn decorate_internal_url(url: &str, window_id: WindowId) -> String {
         "seu://history" => format!("seu://history/?win={window_id}"),
         "seu://bookmarks" => format!("seu://bookmarks/?win={window_id}"),
         "seu://downloads" => format!("seu://downloads/?win={window_id}"),
+        "seu://studio" => format!("seu://studio/?win={window_id}"),
         _ => url.to_string(),
     }
 }
@@ -400,6 +407,7 @@ fn normalize_internal_display_url(raw_url: &str) -> String {
         "seu://history/",
         "seu://bookmarks/",
         "seu://downloads/",
+        "seu://studio/",
     ] {
         if raw_url.starts_with(prefix) {
             return prefix.to_string();
@@ -1457,6 +1465,9 @@ fn handle_native_window_closed(state: &Arc<Mutex<SharedState>>, window_id: Windo
     if should_quit {
         if let Ok(guard) = state.lock() {
             guard.monitor_running.store(false, Ordering::SeqCst);
+            if let Ok(mut st) = guard.studio.lock() {
+                st.shutdown();
+            }
         }
         quit_message_loop();
     }
@@ -1688,6 +1699,9 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::BroadcastBookmarks => broadcast_bookmarks_all(state),
             HostEffect::BroadcastDownloads => broadcast_downloads_all(state),
             HostEffect::PersistSession => persist_session_snapshot(state),
+            HostEffect::PickStudioFolder { window_id } => {
+                spawn_studio_folder_picker(state.clone(), window_id);
+            }
         }
     }
 }
@@ -1820,21 +1834,25 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                 themes,
                 storage,
                 blocker,
+                studio,
                 ..
             } = &mut *guard;
             let storage_guard = storage.lock().ok();
             let db_ref = storage_guard.as_ref().and_then(|g| g.as_ref());
-            let res = match blocker.write() {
-                Ok(mut blocker_guard) => handle_raw_request(
+            let terminal_notify = make_studio_terminal_notifier(self.state.clone());
+            let res = match (blocker.write(), studio.lock()) {
+                (Ok(mut blocker_guard), Ok(mut studio_guard)) => handle_raw_request(
                     &origin_url,
                     request,
                     core,
                     themes,
                     db_ref,
                     &mut blocker_guard,
+                    &mut studio_guard,
+                    Some(terminal_notify),
                 ),
-                Err(_) => Err(seu_bridge::BridgeError::InvalidArgument(
-                    "blocker lock error".into(),
+                _ => Err(seu_bridge::BridgeError::InvalidArgument(
+                    "blocker/studio lock error".into(),
                 )),
             };
             drop(storage_guard);
@@ -3213,6 +3231,24 @@ wrap_task! {
                             Err(_) => Vec::new(),
                         }
                     }
+                    ShortcutAction::ToggleStudio => {
+                        let currently_studio = guard
+                            .core
+                            .window_snapshot(self.window_id)
+                            .ok()
+                            .and_then(|s| {
+                                s.active_tab_id.and_then(|aid| {
+                                    s.tabs
+                                        .iter()
+                                        .find(|t| t.id == aid)
+                                        .map(|t| t.url.starts_with(seu_core::STUDIO_URL))
+                                })
+                            })
+                            .unwrap_or(false);
+                        let target_mode = if currently_studio { "browser" } else { "split" };
+                        apply_studio_mode(&mut guard.core, self.window_id, target_mode)
+                            .unwrap_or_default()
+                    }
                     ShortcutAction::ToggleMenu => Vec::new(),
                 }
             };
@@ -4098,4 +4134,92 @@ wrap_permission_handler! {
             1
         }
     }
+}
+
+fn make_studio_terminal_notifier(state: Arc<Mutex<SharedState>>) -> TerminalNotifyFn {
+    Arc::new(move |snapshot: TerminalSnapshot| {
+        let mut task = BroadcastStudioTerminalTask::new(state.clone(), snapshot);
+        post_task(ThreadId::UI, Some(&mut task));
+    })
+}
+
+fn broadcast_studio_event(state: &Arc<Mutex<SharedState>>, payload: &serde_json::Value) {
+    let (_, tab_browsers) = collect_privileged_views(state);
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if u.starts_with(seu_core::STUDIO_URL) {
+                push_js_event(&b, payload);
+            }
+        }
+    }
+}
+
+wrap_task! {
+    struct BroadcastStudioTerminalTask {
+        state: Arc<Mutex<SharedState>>,
+        snapshot: TerminalSnapshot,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let payload = serde_json::json!({
+                "type": "studioTerminal",
+                "snapshot": self.snapshot,
+            });
+            broadcast_studio_event(&self.state, &payload);
+        }
+    }
+}
+
+wrap_task! {
+    struct StudioFolderPickedTask {
+        state: Arc<Mutex<SharedState>>,
+        path: String,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let summary = {
+                let Ok(mut guard) = self.state.lock() else {
+                    return;
+                };
+                let opened = guard
+                    .studio
+                    .lock()
+                    .ok()
+                    .and_then(|mut st| st.open_workspace(&self.path).ok());
+                if let Some(ref s) = opened {
+                    guard.core.settings.studio_last_workspace = Some(s.root_path.clone());
+                }
+                opened
+            };
+            if let Some(ws) = summary {
+                broadcast_settings_all(&self.state);
+                let payload = serde_json::json!({
+                    "type": "studioWorkspace",
+                    "workspace": ws,
+                });
+                broadcast_studio_event(&self.state, &payload);
+            }
+        }
+    }
+}
+
+fn spawn_studio_folder_picker(state: Arc<Mutex<SharedState>>, _window_id: WindowId) {
+    let _ = std::thread::Builder::new()
+        .name("seu-studio-picker".into())
+        .spawn(move || {
+            let script = "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Abrir pasta no Seu Navegador Studio'; if ($f.ShowDialog() -eq 'OK') { [Console]::Out.Write($f.SelectedPath) }";
+            let out = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-STA", "-Command", script])
+                .output();
+            if let Ok(o) = out {
+                let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !path.is_empty() {
+                    let mut task = StudioFolderPickedTask::new(state, path);
+                    post_task(ThreadId::UI, Some(&mut task));
+                }
+            }
+        });
 }

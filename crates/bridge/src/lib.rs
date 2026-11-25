@@ -18,6 +18,12 @@ use seu_storage::{
     },
     BookmarkItem, DownloadItem, HistoryItem, SitePermissionItem, Storage,
 };
+use seu_studio::{
+    git::GitSummary,
+    runner::{TerminalNotifyFn, TerminalSnapshot},
+    workspace::{FileContent, FileEntry, SearchMatch},
+    StudioService, WorkspaceSummary,
+};
 use seu_themes::{LoadedTheme, ThemeRegistry, ThemeSummary};
 use thiserror::Error;
 
@@ -268,6 +274,35 @@ pub enum BridgeRequest {
     },
     #[serde(rename = "devtools.setRatio")]
     DevToolsSetRatio { window_id: WindowId, ratio_pct: u8 },
+
+    #[serde(rename = "studio.setMode")]
+    StudioSetMode { window_id: WindowId, mode: String },
+    #[serde(rename = "studio.pickFolder")]
+    StudioPickFolder { window_id: WindowId },
+    #[serde(rename = "studio.openWorkspace")]
+    StudioOpenWorkspace { path: String },
+    #[serde(rename = "studio.getWorkspace")]
+    StudioGetWorkspace,
+    #[serde(rename = "studio.listDir")]
+    StudioListDir { rel_path: String },
+    #[serde(rename = "studio.readFile")]
+    StudioReadFile { rel_path: String },
+    #[serde(rename = "studio.writeFile")]
+    StudioWriteFile { rel_path: String, content: String },
+    #[serde(rename = "studio.createEntry")]
+    StudioCreateEntry { rel_path: String, is_dir: bool },
+    #[serde(rename = "studio.search")]
+    StudioSearch { query: String },
+    #[serde(rename = "studio.gitStatus")]
+    StudioGitStatus,
+    #[serde(rename = "studio.gitDiff")]
+    StudioGitDiff { rel_path: Option<String> },
+    #[serde(rename = "studio.runCommand")]
+    StudioRunCommand { command: String },
+    #[serde(rename = "studio.killCommand")]
+    StudioKillCommand { session_id: u64 },
+    #[serde(rename = "studio.getTerminal")]
+    StudioGetTerminal { session_id: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -331,6 +366,21 @@ pub enum BridgeResponse {
         dock: DevToolsDock,
         ratio_pct: u8,
     },
+    StudioWorkspace(Option<WorkspaceSummary>),
+    StudioEntries(Vec<FileEntry>),
+    StudioFile(FileContent),
+    StudioSaved {
+        bytes: usize,
+    },
+    StudioCreated {
+        rel_path: String,
+    },
+    StudioSearchResults(Vec<SearchMatch>),
+    StudioGit(GitSummary),
+    StudioDiff {
+        diff: String,
+    },
+    StudioTerminal(Option<TerminalSnapshot>),
 }
 
 /// Side-effect commands that the engine/window layer must execute after
@@ -448,6 +498,9 @@ pub enum HostEffect {
     BroadcastBookmarks,
     BroadcastDownloads,
     PersistSession,
+    PickStudioFolder {
+        window_id: WindowId,
+    },
 }
 
 pub struct DispatchOutput {
@@ -457,6 +510,7 @@ pub struct DispatchOutput {
 
 /// Parses, validates origin + size, mutates `BrowserCore`, and returns both the
 /// JSON-serializable response and any native host side effects to run.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_raw_request(
     origin_url: &str,
     raw_json: &str,
@@ -464,6 +518,8 @@ pub fn handle_raw_request(
     themes: &ThemeRegistry,
     storage: Option<&Storage>,
     blocker: &mut BlockerService,
+    studio: &mut StudioService,
+    terminal_notify: Option<TerminalNotifyFn>,
 ) -> Result<DispatchOutput, BridgeError> {
     if !is_privileged_origin(origin_url) {
         return Err(BridgeError::OriginDenied);
@@ -474,7 +530,7 @@ pub fn handle_raw_request(
 
     let req: BridgeRequest =
         serde_json::from_str(raw_json).map_err(|e| BridgeError::InvalidJson(e.to_string()))?;
-    dispatch_request(req, core, themes, storage, blocker)
+    dispatch_request(req, core, themes, storage, blocker, studio, terminal_notify)
 }
 
 pub fn dispatch_request(
@@ -483,6 +539,8 @@ pub fn dispatch_request(
     themes: &ThemeRegistry,
     storage: Option<&Storage>,
     blocker: &mut BlockerService,
+    studio: &mut StudioService,
+    terminal_notify: Option<TerminalNotifyFn>,
 ) -> Result<DispatchOutput, BridgeError> {
     match req {
         BridgeRequest::WindowGetSnapshot { window_id } => {
@@ -1462,6 +1520,307 @@ pub fn dispatch_request(
                 ],
             })
         }
+        BridgeRequest::StudioSetMode { window_id, mode } => {
+            let effects = apply_studio_mode(core, window_id, &mode)?;
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::WindowSnapshot(snap),
+                effects,
+            })
+        }
+        BridgeRequest::StudioPickFolder { window_id } => Ok(DispatchOutput {
+            response: BridgeResponse::Ok,
+            effects: vec![HostEffect::PickStudioFolder { window_id }],
+        }),
+        BridgeRequest::StudioOpenWorkspace { path } => {
+            let summary = studio
+                .open_workspace(&path)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            core.settings.studio_last_workspace = Some(summary.root_path.clone());
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioWorkspace(Some(summary)),
+                effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::StudioGetWorkspace => {
+            if studio.workspace_summary().is_err() {
+                if let Some(last) = core.settings.studio_last_workspace.clone() {
+                    let _ = studio.open_workspace(&last);
+                }
+            }
+            let summary = studio.workspace_summary().ok();
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioWorkspace(summary),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioListDir { rel_path } => {
+            let entries = studio
+                .list_dir(&rel_path)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioEntries(entries),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioReadFile { rel_path } => {
+            let file = studio
+                .read_file(&rel_path)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioFile(file),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioWriteFile { rel_path, content } => {
+            let bytes = studio
+                .write_file(&rel_path, &content)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioSaved { bytes },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioCreateEntry { rel_path, is_dir } => {
+            let created = studio
+                .create_entry(&rel_path, is_dir)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioCreated { rel_path: created },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioSearch { query } => {
+            let results = studio
+                .search(&query)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioSearchResults(results),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioGitStatus => {
+            let git = studio
+                .git_status()
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioGit(git),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioGitDiff { rel_path } => {
+            let diff = studio
+                .git_diff(rel_path.as_deref())
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioDiff { diff },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioRunCommand { command } => {
+            let snap = studio
+                .run_command(&command, terminal_notify)
+                .map_err(BridgeError::InvalidArgument)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioTerminal(Some(snap)),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioKillCommand { session_id } => {
+            let snap = studio.kill_command(session_id);
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioTerminal(snap),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioGetTerminal { session_id } => {
+            let snap = studio.get_terminal(session_id);
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioTerminal(snap),
+                effects: Vec::new(),
+            })
+        }
+    }
+}
+
+/// Applies the 3-way Browser / Split / Studio mode transition cleanly on `BrowserCore`.
+pub fn apply_studio_mode(
+    core: &mut BrowserCore,
+    window_id: WindowId,
+    mode: &str,
+) -> Result<Vec<HostEffect>, BridgeError> {
+    let snap = core.window_snapshot(window_id)?;
+    let existing_studio = snap
+        .tabs
+        .iter()
+        .find(|t| t.url.starts_with(seu_core::STUDIO_URL))
+        .map(|t| t.id);
+
+    let mut effects = Vec::new();
+    match mode {
+        "browser" => {
+            let _ = core.close_split_view(window_id);
+            let active_is_studio =
+                snap.active_tab_id == existing_studio && existing_studio.is_some();
+            if active_is_studio {
+                let web_tab = snap
+                    .tabs
+                    .iter()
+                    .find(|t| Some(t.id) != existing_studio)
+                    .map(|t| t.id);
+                let target_id = if let Some(wid_tab) = web_tab {
+                    let was_sleeping = core
+                        .get_tab(wid_tab)
+                        .map(|t| t.state == TabLifecycleState::Sleeping)
+                        .unwrap_or(false);
+                    core.activate_tab(window_id, wid_tab)?;
+                    if was_sleeping {
+                        let url = core
+                            .get_tab(wid_tab)
+                            .map(|t| t.url.clone())
+                            .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                        effects.push(HostEffect::WakeTabView {
+                            window_id,
+                            tab_id: wid_tab,
+                            url,
+                            scroll_x: 0,
+                            scroll_y: 0,
+                        });
+                    }
+                    wid_tab
+                } else {
+                    let new_id = core.create_tab(window_id, None, true)?;
+                    effects.push(HostEffect::CreateTabView {
+                        window_id,
+                        tab_id: new_id,
+                        url: seu_core::NEWTAB_URL.to_string(),
+                    });
+                    new_id
+                };
+                effects.push(HostEffect::ActivateTabView {
+                    window_id,
+                    tab_id: target_id,
+                });
+            }
+            // Put Studio tab to sleep when leaving Studio so pure browsing uses 0 MB extra.
+            if let Some(sid) = existing_studio {
+                if core.mark_tab_sleeping(sid, true).is_ok() {
+                    effects.push(HostEffect::SleepTabView {
+                        window_id,
+                        tab_id: sid,
+                    });
+                    effects.push(HostEffect::BroadcastMemory);
+                }
+            }
+            effects.push(HostEffect::RelayoutWindow { window_id });
+            effects.push(HostEffect::BroadcastState { window_id });
+            Ok(effects)
+        }
+        "studio" => {
+            let _ = core.close_split_view(window_id);
+            let studio_id = if let Some(sid) = existing_studio {
+                let was_sleeping = core
+                    .get_tab(sid)
+                    .map(|t| t.state == TabLifecycleState::Sleeping)
+                    .unwrap_or(false);
+                core.activate_tab(window_id, sid)?;
+                if was_sleeping {
+                    effects.push(HostEffect::WakeTabView {
+                        window_id,
+                        tab_id: sid,
+                        url: seu_core::STUDIO_URL.to_string(),
+                        scroll_x: 0,
+                        scroll_y: 0,
+                    });
+                }
+                sid
+            } else {
+                let sid = core.create_tab(window_id, Some(seu_core::STUDIO_URL), true)?;
+                effects.push(HostEffect::CreateTabView {
+                    window_id,
+                    tab_id: sid,
+                    url: seu_core::STUDIO_URL.to_string(),
+                });
+                sid
+            };
+            effects.push(HostEffect::ActivateTabView {
+                window_id,
+                tab_id: studio_id,
+            });
+            effects.push(HostEffect::RelayoutWindow { window_id });
+            effects.push(HostEffect::BroadcastState { window_id });
+            effects.push(HostEffect::BroadcastMemory);
+            Ok(effects)
+        }
+        "split" => {
+            // Pick the paired web tab before activating Studio (prefer current active web tab).
+            let preferred_web = snap
+                .active_tab_id
+                .filter(|&id| Some(id) != existing_studio)
+                .or_else(|| {
+                    snap.tabs
+                        .iter()
+                        .find(|t| Some(t.id) != existing_studio)
+                        .map(|t| t.id)
+                });
+
+            let studio_id = if let Some(sid) = existing_studio {
+                let was_sleeping = core
+                    .get_tab(sid)
+                    .map(|t| t.state == TabLifecycleState::Sleeping)
+                    .unwrap_or(false);
+                core.activate_tab(window_id, sid)?;
+                if was_sleeping {
+                    effects.push(HostEffect::WakeTabView {
+                        window_id,
+                        tab_id: sid,
+                        url: seu_core::STUDIO_URL.to_string(),
+                        scroll_x: 0,
+                        scroll_y: 0,
+                    });
+                }
+                sid
+            } else {
+                let sid = core.create_tab(window_id, Some(seu_core::STUDIO_URL), true)?;
+                effects.push(HostEffect::CreateTabView {
+                    window_id,
+                    tab_id: sid,
+                    url: seu_core::STUDIO_URL.to_string(),
+                });
+                sid
+            };
+
+            let (paired, created_web) = core.toggle_split_view(window_id, preferred_web)?;
+            if let Some(pid) = paired {
+                let url = core
+                    .get_tab(pid)
+                    .map(|t| t.url.clone())
+                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                if created_web {
+                    effects.push(HostEffect::CreateTabView {
+                        window_id,
+                        tab_id: pid,
+                        url,
+                    });
+                } else {
+                    effects.push(HostEffect::WakeTabView {
+                        window_id,
+                        tab_id: pid,
+                        url,
+                        scroll_x: 0,
+                        scroll_y: 0,
+                    });
+                }
+            }
+            let _ = studio_id;
+            effects.push(HostEffect::RelayoutWindow { window_id });
+            effects.push(HostEffect::BroadcastState { window_id });
+            effects.push(HostEffect::BroadcastMemory);
+            Ok(effects)
+        }
+        _ => Err(BridgeError::InvalidArgument(format!(
+            "unknown studio mode: {mode}"
+        ))),
     }
 }
 
@@ -1481,6 +1840,7 @@ mod tests {
         let mut core = BrowserCore::new();
         let themes = test_registry();
         let mut blocker = BlockerService::new();
+        let mut studio = StudioService::new();
         let err = handle_raw_request(
             "https://evil.example/",
             r#"{"method":"settings.get"}"#,
@@ -1488,6 +1848,8 @@ mod tests {
             &themes,
             None,
             &mut blocker,
+            &mut studio,
+            None,
         )
         .err();
         assert_eq!(err, Some(BridgeError::OriginDenied));
@@ -1498,6 +1860,7 @@ mod tests {
         let mut core = BrowserCore::new();
         let themes = test_registry();
         let mut blocker = BlockerService::new();
+        let mut studio = StudioService::new();
         let (win_id, _) = core.create_window(false, None);
 
         let payload = format!(
@@ -1510,6 +1873,8 @@ mod tests {
             &themes,
             None,
             &mut blocker,
+            &mut studio,
+            None,
         );
         assert!(out.is_ok());
         if let Ok(output) = out {
@@ -1527,6 +1892,8 @@ mod tests {
             &themes,
             None,
             &mut blocker,
+            &mut studio,
+            None,
         );
         assert!(matches!(
             theme_out.map(|o| o.response),
@@ -1540,6 +1907,8 @@ mod tests {
             &themes,
             None,
             &mut blocker,
+            &mut studio,
+            None,
         );
         assert!(rebind.is_ok());
         assert_eq!(
@@ -1554,12 +1923,55 @@ mod tests {
             &themes,
             None,
             &mut blocker,
+            &mut studio,
+            None,
         );
         assert!(allow.is_ok());
         assert!(core
             .settings
             .blocker_allowlist
             .contains(&"example.com".to_string()));
+
+        // Verify 3-way studio mode switching: split -> studio -> browser (sleeps studio tab).
+        let split_res = handle_raw_request(
+            "seu://shell/",
+            &format!(
+                r#"{{"method":"studio.setMode","params":{{"window_id":{win_id},"mode":"split"}}}}"#
+            ),
+            &mut core,
+            &themes,
+            None,
+            &mut blocker,
+            &mut studio,
+            None,
+        );
+        assert!(split_res.is_ok());
+        if let Ok(o) = split_res {
+            assert!(matches!(
+                o.response,
+                BridgeResponse::WindowSnapshot(ref s) if s.split_tab_id.is_some()
+            ));
+        }
+
+        let browser_res = handle_raw_request(
+            "seu://shell/",
+            &format!(
+                r#"{{"method":"studio.setMode","params":{{"window_id":{win_id},"mode":"browser"}}}}"#
+            ),
+            &mut core,
+            &themes,
+            None,
+            &mut blocker,
+            &mut studio,
+            None,
+        );
+        assert!(browser_res.is_ok());
+        if let Ok(o) = browser_res {
+            assert!(o
+                .effects
+                .iter()
+                .any(|e| matches!(e, HostEffect::SleepTabView { .. })));
+        }
     }
 
     #[test]
@@ -1567,6 +1979,7 @@ mod tests {
         let mut core = BrowserCore::new();
         let themes = test_registry();
         let mut blocker = BlockerService::new();
+        let mut studio = StudioService::new();
         assert!(matches!(
             handle_raw_request(
                 "seu://shell/",
@@ -1574,7 +1987,9 @@ mod tests {
                 &mut core,
                 &themes,
                 None,
-                &mut blocker
+                &mut blocker,
+                &mut studio,
+                None,
             ),
             Err(BridgeError::InvalidJson(_))
         ));
@@ -1585,7 +2000,9 @@ mod tests {
                 &mut core,
                 &themes,
                 None,
-                &mut blocker
+                &mut blocker,
+                &mut studio,
+                None,
             ),
             Err(BridgeError::InvalidArgument(_))
         ));

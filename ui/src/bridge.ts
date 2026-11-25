@@ -133,6 +133,49 @@ export interface SitePermissionItem {
   updated_at: number;
 }
 
+export interface StudioFileEntry {
+  name: string;
+  rel_path: string;
+  is_dir: boolean;
+  size_bytes: number;
+  git_status: string | null;
+}
+
+export interface StudioGitSummary {
+  is_repo: boolean;
+  branch: string;
+  changed_files: { rel_path: string; code: string }[];
+}
+
+export interface StudioWorkspaceSummary {
+  root_path: string;
+  name: string;
+  git: StudioGitSummary;
+  entries: StudioFileEntry[];
+}
+
+export interface StudioFileContent {
+  rel_path: string;
+  name: string;
+  content: string;
+  size_bytes: number;
+  language: string;
+}
+
+export interface StudioSearchMatch {
+  rel_path: string;
+  line: number;
+  preview: string;
+}
+
+export interface StudioTerminalSnapshot {
+  session_id: number;
+  command: string;
+  running: boolean;
+  exit_code: number | null;
+  output: string;
+}
+
 export interface DataSummaryPayload {
   bookmarks: BookmarkItem[];
   history: HistoryItem[];
@@ -174,6 +217,8 @@ export type BridgeEvent =
   | { type: "bookmarksChanged" }
   | { type: "downloads"; items: DownloadItem[] }
   | { type: "permissionPrompt"; prompt_id: number; origin: string; permission: string }
+  | { type: "studioWorkspace"; workspace: StudioWorkspaceSummary }
+  | { type: "studioTerminal"; snapshot: StudioTerminalSnapshot }
   | { type: "focusOmnibox" }
   | { type: "toggleMenu" };
 

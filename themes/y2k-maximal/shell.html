@@ -68,9 +68,17 @@
       </button>
     </form>
 
-    <button type="button" class="y2k-nav-btn y2k-split-btn" data-seu-action="split.toggle" data-seu-title-t="nav.splitView" aria-label="Split View">
-      <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
-    </button>
+    <div class="y2k-mode-switch" role="group" aria-label="Modo">
+      <button type="button" class="y2k-mode-btn" data-mode="browser" data-seu-action="studio.setMode" data-seu-param="browser" data-seu-title-t="nav.modeBrowser">
+        <i class="fa-solid fa-globe" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="y2k-mode-btn" data-mode="split" data-seu-action="studio.setMode" data-seu-param="split" data-seu-title-t="nav.modeSplit">
+        <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="y2k-mode-btn" data-mode="studio" data-seu-action="studio.setMode" data-seu-param="studio" data-seu-title-t="nav.modeStudio">
+        <i class="fa-solid fa-code" aria-hidden="true"></i>
+      </button>
+    </div>
     <button type="button" class="y2k-ram-pill" data-seu-action="overlay.toggleMemory" data-seu-title-t="badge.ram">
       <i class="fa-solid fa-microchip" aria-hidden="true"></i>
       <span data-seu-bind="memory.badgeText">RAM -- MB</span>

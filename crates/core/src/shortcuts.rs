@@ -90,6 +90,7 @@ pub enum ShortcutAction {
     OpenHistory,
     OpenDownloads,
     ToggleSplitView,
+    ToggleStudio,
 }
 
 impl ShortcutAction {
@@ -128,6 +129,7 @@ impl ShortcutAction {
             Self::OpenHistory => "nav.openHistory",
             Self::OpenDownloads => "nav.openDownloads",
             Self::ToggleSplitView => "split.toggle",
+            Self::ToggleStudio => "studio.toggle",
         }
     }
 
@@ -166,6 +168,7 @@ impl ShortcutAction {
             "nav.openHistory" => Some(Self::OpenHistory),
             "nav.openDownloads" => Some(Self::OpenDownloads),
             "split.toggle" => Some(Self::ToggleSplitView),
+            "studio.toggle" => Some(Self::ToggleStudio),
             _ => None,
         }
     }
@@ -205,13 +208,14 @@ impl ShortcutAction {
             Self::OpenHistory,
             Self::OpenDownloads,
             Self::ToggleSplitView,
+            Self::ToggleStudio,
         ]
     }
 }
 
 /// Default Google Chrome-compatible keyboard shortcuts.
 pub fn default_chrome_shortcuts() -> BTreeMap<String, String> {
-    let entries: [(&str, &str); 33] = [
+    let entries: [(&str, &str); 34] = [
         ("tab.new", "Ctrl+T"),
         ("tab.close", "Ctrl+W"),
         ("tab.reopenClosed", "Ctrl+Shift+T"),
@@ -245,6 +249,7 @@ pub fn default_chrome_shortcuts() -> BTreeMap<String, String> {
         ("nav.openHistory", "Ctrl+H"),
         ("nav.openDownloads", "Ctrl+J"),
         ("split.toggle", "Ctrl+Shift+S"),
+        ("studio.toggle", "Ctrl+Shift+E"),
     ];
     entries
         .into_iter()
