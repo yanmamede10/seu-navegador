@@ -2,7 +2,7 @@
 //! Windows Snap support, and dynamic drag initiation from the HTML shell.
 
 use seu_core::{CoreSettings, Locale, SearchEngine, WindowId};
-use seu_engine::cef_backend::{CefEngine, NativeWindowHost};
+use seu_engine::cef_backend::{CefEngine, NativeWindowHost, SplitterAxis};
 use seu_engine::{NativeWindowHandle, RectPx};
 use seu_storage::Storage;
 use std::collections::HashMap;
@@ -17,16 +17,17 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::MARGINS;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowLongPtrW,
-    GetWindowRect, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
-    GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP,
-    HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, MINMAXINFO, NCCALCSIZE_PARAMS, SC_MOVE, SWP_FRAMECHANGED,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WM_CLOSE,
-    WM_GETMINMAXINFO, WM_NCCALCSIZE, WM_NCHITTEST, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW,
-    WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetWindowLongPtrW,
+    GetWindowRect, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetCursor,
+    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, CS_DBLCLKS, CS_HREDRAW,
+    CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT,
+    HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, IDC_SIZENS, IDC_SIZEWE, MINMAXINFO,
+    NCCALCSIZE_PARAMS, SC_MOVE, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_GETMINMAXINFO, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SETCURSOR, WM_SIZE, WM_SYSCOMMAND,
+    WNDCLASSEXW, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
 };
 
 const WINDOW_CLASS: &str = "SeuNavegadorFramelessWindow";
@@ -264,6 +265,14 @@ impl NativeWindowHost for Win32WindowHost {
                         warn!("Failed to persist blocker_allowlist setting: {err}");
                     }
                 }
+                let rs = if settings.restore_session_on_startup {
+                    "1"
+                } else {
+                    "0"
+                };
+                if let Err(err) = db.set_setting("restore_session_on_startup", rs) {
+                    warn!("Failed to persist restore_session_on_startup setting: {err}");
+                }
             }
         }
     }
@@ -324,6 +333,9 @@ pub fn load_persisted_settings(storage: &Option<Storage>) -> CoreSettings {
         if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&raw_allow) {
             settings.blocker_allowlist = parsed;
         }
+    }
+    if let Ok(Some(rs)) = db.get_setting("restore_session_on_startup") {
+        settings.restore_session_on_startup = rs != "0";
     }
 
     settings
@@ -429,6 +441,53 @@ unsafe extern "system" fn wnd_proc(
                     }
                 };
                 return hit as LRESULT;
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_SETCURSOR => {
+            if (lparam & 0xFFFF) as u32 == HTCLIENT {
+                let window_id = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as WindowId;
+                let mut pt = POINT { x: 0, y: 0 };
+                if window_id > 0 && GetCursorPos(&mut pt) != 0 {
+                    ScreenToClient(hwnd, &mut pt);
+                    if let Some(axis) = CefEngine::hit_test_splitter(window_id, pt.x, pt.y) {
+                        let cursor = match axis {
+                            SplitterAxis::SplitVertical | SplitterAxis::DevToolsVertical => {
+                                IDC_SIZEWE
+                            }
+                            SplitterAxis::DevToolsHorizontal => IDC_SIZENS,
+                        };
+                        SetCursor(LoadCursorW(std::ptr::null_mut(), cursor));
+                        return 1;
+                    }
+                }
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_LBUTTONDOWN => {
+            let window_id = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as WindowId;
+            let x = (lparam & 0xFFFF) as i16 as i32;
+            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+            if window_id > 0 && CefEngine::begin_splitter_drag(window_id, x, y) {
+                SetCapture(hwnd);
+                return 0;
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_MOUSEMOVE => {
+            let window_id = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as WindowId;
+            let x = (lparam & 0xFFFF) as i16 as i32;
+            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+            if window_id > 0 && CefEngine::update_splitter_drag(window_id, x, y) {
+                return 0;
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_LBUTTONUP => {
+            let window_id = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as WindowId;
+            if window_id > 0 && CefEngine::end_splitter_drag(window_id) {
+                ReleaseCapture();
+                return 0;
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }

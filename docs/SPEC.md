@@ -94,7 +94,12 @@ Arquivo de referência: `docs/design/seu-navegador-referencia-ui.html` (mover da
   2. **View de Conteúdo:** uma por aba viva, posicionada abaixo da shell; apenas a aba ativa fica visível.
   3. **View de Overlay/Popup reutilizável:** janela/view popup borderless sob demanda posicionada **acima** da view de conteúdo para menus e popups que não podem ser cortados pela shell (sugestões da omnibox, menu `≡`, popover de RAM/bloqueador, prompts de permissão de site, busca `Ctrl+F`).
   4. **View de DevTools acoplado (docked):** criada sob demanda ao abrir `F12` (lateral ou inferior, com divisor arrastável) ou destacada em janela própria; recebe CSS injetado automaticamente a partir dos tokens semânticos do tema ativo (`--sys-color-*`, fontes, destaque) para manter a identidade do navegador.
-- **Páginas internas:** `seu://newtab`, `seu://settings`, `seu://history`, `seu://bookmarks`, `seu://downloads`, `seu://themes`, `seu://themes/editor`. Todas consomem os tokens semânticos do tema ativo.
+- **Páginas internas:** `seu://newtab`, `seu://settings`, `seu://history`, `seu://bookmarks`, `seu://downloads`, `seu://themes`, `seu://themes/editor`, `seu://studio`. Todas consomem os tokens semânticos do tema ativo.
+- **Split View & Studio (`seu://studio/` — IDE leve + Orquestrador de Agentes):**
+  - A janela suporta 3 modos alternáveis em 1 clique (**Só Navegador**, **Split View** lado a lado com divisor arrastável, e **Só Studio**).
+  - **Custo ZERO no modo Navegador:** tudo do Studio vive no crate isolado `crates/studio` + bundle lazy `seu://studio/`; fechado consome `0 MB` extras.
+  - **100% personalizável por temas:** o Studio consome os mesmos tokens `--seu-*` e CSS declarativo do tema ativo.
+  - **Orquestrador híbrido:** cada agente suporta tanto **APIs diretas** (Gemini, Claude, OpenAI, Ollama local) quanto **CLIs locais instalados** (`gemini-cli`, `claude-code`, `codex-cli`), com ferramentas de código restritas à pasta aberta e ponte nativa de **QA Browser** direto na aba real pareada no Split View (console, rede, DOM, screenshot).
 
 ### 4.2 Contrato mínimo da Shell (obrigatório em todos os temas)
 Todo tema oficial ou criado por usuário deve suportar duas camadas de controles:
@@ -294,7 +299,9 @@ Cada fase termina com testes, commit, demo e checklist (o que ficou pronto, como
 2. **Tema padrão:** motor de temas (manifest, contrato semântico de tokens, templating declarativo, sanitizador HTML/CSS, CSP) + **Y2K Maximal** fiel à referência (incluindo titlebar própria e drag-and-drop).
 3. **Memória:** ciclo de vida completo, políticas (`contenteditable`/`beforeunload`), pilha Voltar/Avançar, miniaturas em disco, medição real (tratando renderers compartilhados) + ADR de flags do Chromium.
 4. **Bloqueador:** `adblock` com EasyList + EasyPrivacy + uBlock Filters + scriptlets + cosméticos, contadores e allowlist.
-5. **Persistência & DevTools:** histórico, favoritos (pastas + import), downloads, sessão (janelas/abas/grupos dormindo), modo anônimo, permissões, configurações e **DevTools acoplado + CSS temático**.
+5. **Persistência, Split View & DevTools:** histórico automático com busca/limpeza, favoritos (`Ctrl+D`, pastas, import Netscape HTML), downloads (progresso, pausar/retomar/cancelar), restaurar sessão (janelas/abas/grupos dormindo), modo anônimo, permissões de site, configurações, **Split View nativo (2 views lado a lado com divisor arrastável)** e **DevTools (`F12`) acoplado + CSS temático**.
+5.5. **Studio MVP (`seu://studio/`):** crate isolado `crates/studio` (workspace, árvore de arquivos, Git status/diff, terminal integrado) + editor leve CodeMirror 6 100% temável (`--seu-*`) + toggle **Navegador / Split View / Studio** pareado com qualquer aba real.
+5.6. **Orquestrador de Agentes & QA Nativo:** board multi-agente híbrido (**API direta**: Gemini/Claude/OpenAI/Ollama + **CLI local**: `gemini-cli`/`claude-code`/`codex-cli`), aprovação de diff/comandos e ferramentas de QA conectadas direto na aba pareada do navegador.
 6. **Os outros 8 temas:** implementados só com a API pública (dogfooding) + titlebar/controles mínimos em todos + galeria e troca a quente.
 7. **Criar interface:** pacote de arquivos (hot-reload, importar/exportar `.seutheme`) e editor visual de tokens com WCAG AA e preview lado a lado.
 8. **Skins por site:** motor CSS + JS isolado com regras de segurança + skin do YouTube no `y2k-maximal`.

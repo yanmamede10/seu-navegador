@@ -85,6 +85,11 @@ pub enum ShortcutAction {
     SwitchTab7,
     SwitchTab8,
     SwitchTabLast,
+    ToggleDevTools,
+    BookmarkPage,
+    OpenHistory,
+    OpenDownloads,
+    ToggleSplitView,
 }
 
 impl ShortcutAction {
@@ -118,6 +123,11 @@ impl ShortcutAction {
             Self::SwitchTab7 => "tab.switch7",
             Self::SwitchTab8 => "tab.switch8",
             Self::SwitchTabLast => "tab.switchLast",
+            Self::ToggleDevTools => "devtools.toggle",
+            Self::BookmarkPage => "bookmarks.toggle",
+            Self::OpenHistory => "nav.openHistory",
+            Self::OpenDownloads => "nav.openDownloads",
+            Self::ToggleSplitView => "split.toggle",
         }
     }
 
@@ -151,6 +161,11 @@ impl ShortcutAction {
             "tab.switch7" => Some(Self::SwitchTab7),
             "tab.switch8" => Some(Self::SwitchTab8),
             "tab.switchLast" => Some(Self::SwitchTabLast),
+            "devtools.toggle" => Some(Self::ToggleDevTools),
+            "bookmarks.toggle" => Some(Self::BookmarkPage),
+            "nav.openHistory" => Some(Self::OpenHistory),
+            "nav.openDownloads" => Some(Self::OpenDownloads),
+            "split.toggle" => Some(Self::ToggleSplitView),
             _ => None,
         }
     }
@@ -185,13 +200,18 @@ impl ShortcutAction {
             Self::SwitchTab7,
             Self::SwitchTab8,
             Self::SwitchTabLast,
+            Self::ToggleDevTools,
+            Self::BookmarkPage,
+            Self::OpenHistory,
+            Self::OpenDownloads,
+            Self::ToggleSplitView,
         ]
     }
 }
 
 /// Default Google Chrome-compatible keyboard shortcuts.
 pub fn default_chrome_shortcuts() -> BTreeMap<String, String> {
-    let entries: [(&str, &str); 28] = [
+    let entries: [(&str, &str); 33] = [
         ("tab.new", "Ctrl+T"),
         ("tab.close", "Ctrl+W"),
         ("tab.reopenClosed", "Ctrl+Shift+T"),
@@ -220,6 +240,11 @@ pub fn default_chrome_shortcuts() -> BTreeMap<String, String> {
         ("tab.switch7", "Ctrl+7"),
         ("tab.switch8", "Ctrl+8"),
         ("tab.switchLast", "Ctrl+9"),
+        ("devtools.toggle", "F12"),
+        ("bookmarks.toggle", "Ctrl+D"),
+        ("nav.openHistory", "Ctrl+H"),
+        ("nav.openDownloads", "Ctrl+J"),
+        ("split.toggle", "Ctrl+Shift+S"),
     ];
     entries
         .into_iter()
@@ -421,6 +446,7 @@ pub fn match_shortcut_vk(
         "Ctrl+PageDown" => Some(ShortcutAction::NextTab),
         "Ctrl+PageUp" => Some(ShortcutAction::PrevTab),
         "Ctrl+F4" => Some(ShortcutAction::CloseTab),
+        "Ctrl+Shift+I" => Some(ShortcutAction::ToggleDevTools),
         _ => None,
     }
 }

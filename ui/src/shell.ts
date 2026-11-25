@@ -35,6 +35,22 @@ let currentBlocker: BlockerStats = {
   last_updated_secs: null,
 };
 let activeOverlayPanel: "menu" | "memory" | "blocker" | null = null;
+let activeUrlBookmarked = false;
+
+async function refreshActiveBookmarkState(): Promise<void> {
+  const activeTab = currentSnapshot?.tabs.find(
+    (tab) => tab.id === currentSnapshot?.active_tab_id,
+  );
+  const url = activeTab?.url ?? "";
+  if (!url || url.startsWith("seu://")) {
+    activeUrlBookmarked = false;
+    return;
+  }
+  const res = await callBridge<{ bookmarked: boolean }>("bookmarks.isBookmarked", {
+    url,
+  }).catch(() => undefined);
+  activeUrlBookmarked = Boolean(res?.bookmarked);
+}
 
 const runtime = new DeclarativeRuntime(mountEl, {
   onStartDragWindow: () => {
@@ -125,6 +141,28 @@ const runtime = new DeclarativeRuntime(mountEl, {
       case "overlay.toggleBlocker":
         toggleOverlayPanel("blocker");
         break;
+      case "bookmarks.toggle": {
+        const activeTab = currentSnapshot?.tabs.find(
+          (tab) => tab.id === currentSnapshot?.active_tab_id,
+        );
+        if (activeTab && !activeTab.url.startsWith("seu://")) {
+          void callBridge<{ bookmarked: boolean }>("bookmarks.toggle", {
+            title: activeTab.title,
+            url: activeTab.url,
+            parent_id: null,
+          }).then((res) => {
+            activeUrlBookmarked = Boolean(res?.bookmarked);
+            renderAll();
+          });
+        }
+        break;
+      }
+      case "split.toggle":
+        void callBridge("split.toggle", { window_id: windowId });
+        break;
+      case "devtools.toggle":
+        void callBridge("devtools.toggle", { window_id: windowId });
+        break;
     }
   },
 });
@@ -137,8 +175,8 @@ function toggleOverlayPanel(panel: "menu" | "memory" | "blocker"): void {
   }
   const dpr = window.devicePixelRatio || 1;
   const rect = mountEl.getBoundingClientRect();
-  const widthCss = panel === "menu" ? 286 : 350;
-  const heightCss = panel === "menu" ? 410 : 440;
+  const widthCss = panel === "menu" ? 296 : 350;
+  const heightCss = panel === "menu" ? 560 : 440;
   const xCss = Math.max(8, window.innerWidth - widthCss - 10);
   const yCss = rect.height + 4;
   activeOverlayPanel = panel;
@@ -187,6 +225,7 @@ function renderAll(): void {
   if (!currentSnapshot || !currentTheme) return;
 
   document.documentElement.dataset.incognito = currentSnapshot.incognito ? "true" : "false";
+  document.documentElement.dataset.split = currentSnapshot.split_tab_id ? "true" : "false";
 
   const activeTab =
     currentSnapshot.tabs.find((tab) => tab.id === currentSnapshot?.active_tab_id) ?? null;
@@ -196,12 +235,18 @@ function renderAll(): void {
   const tabItems: RepeatItem[] = [];
   for (const tab of currentSnapshot.tabs) {
     const grp = tab.group_id !== null ? groupMap.get(tab.group_id) : undefined;
-    if (grp && grp.collapsed && tab.id !== currentSnapshot.active_tab_id) {
+    if (
+      grp &&
+      grp.collapsed &&
+      tab.id !== currentSnapshot.active_tab_id &&
+      tab.id !== currentSnapshot.split_tab_id
+    ) {
       continue;
     }
 
     const states: string[] = [];
     if (tab.id === currentSnapshot.active_tab_id) states.push("active");
+    if (tab.id === currentSnapshot.split_tab_id) states.push("split");
     if (tab.state === "sleeping") states.push("sleeping");
     if (tab.pinned) states.push("pinned");
     if (tab.audible) states.push("playing");
@@ -210,9 +255,11 @@ function renderAll(): void {
       ? "fa-solid fa-volume-high"
       : tab.pinned
         ? "fa-solid fa-thumbtack"
-        : tab.id === currentSnapshot.active_tab_id
-          ? "fa-solid fa-bolt"
-          : "fa-solid fa-globe";
+        : tab.id === currentSnapshot.split_tab_id
+          ? "fa-solid fa-table-columns"
+          : tab.id === currentSnapshot.active_tab_id
+            ? "fa-solid fa-bolt"
+            : "fa-solid fa-globe";
 
     tabItems.push({
       id: tab.id,
@@ -242,6 +289,7 @@ function renderAll(): void {
         url: activeTab?.url ?? "seu://newtab/",
         can_go_back: activeTab?.can_go_back ?? false,
         can_go_forward: activeTab?.can_go_forward ?? false,
+        bookmarkIcon: activeUrlBookmarked ? "fa-solid fa-star" : "fa-regular fa-star",
       },
       memory: {
         badgeText:
@@ -285,6 +333,9 @@ onBridgeEvent((event) => {
   if (event.type === "state") {
     currentSnapshot = event.snapshot;
     renderAll();
+    void refreshActiveBookmarkState().then(() => renderAll());
+  } else if (event.type === "bookmarksChanged") {
+    void refreshActiveBookmarkState().then(() => renderAll());
   } else if (event.type === "settings") {
     setLocale(event.settings.locale);
     renderAll();

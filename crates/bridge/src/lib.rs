@@ -8,20 +8,20 @@ use seu_blocker::{BlockerService, BlockerStats};
 use seu_core::{
     memory::{MemoryPolicy, MemoryStats},
     shortcuts::QuickShortcut,
-    BrowserCore, CoreError, CoreSettings, GroupId, Locale, SearchCategory, SearchEngine, TabId,
-    TabLifecycleState, WindowId, WindowSnapshot,
+    BrowserCore, CoreError, CoreSettings, DevToolsDock, GroupId, Locale, SearchCategory,
+    SearchEngine, TabId, TabLifecycleState, WindowId, WindowSnapshot,
 };
 use seu_storage::{
     importer::{
         detect_browser_profiles, run_profile_import, DetectedBrowserProfile, ImportOptions,
         ImportReport,
     },
-    BookmarkItem, HistoryItem, Storage,
+    BookmarkItem, DownloadItem, HistoryItem, SitePermissionItem, Storage,
 };
 use seu_themes::{LoadedTheme, ThemeRegistry, ThemeSummary};
 use thiserror::Error;
 
-pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 256 * 1024;
+pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BridgeError {
@@ -188,6 +188,86 @@ pub enum BridgeRequest {
     BlockerToggleSite { domain: String },
     #[serde(rename = "blocker.updateLists")]
     BlockerUpdateLists,
+
+    #[serde(rename = "history.list")]
+    HistoryList {
+        query: Option<String>,
+        limit: Option<usize>,
+    },
+    #[serde(rename = "history.delete")]
+    HistoryDelete { id: i64 },
+    #[serde(rename = "history.clear")]
+    HistoryClear,
+
+    #[serde(rename = "bookmarks.list")]
+    BookmarksList,
+    #[serde(rename = "bookmarks.isBookmarked")]
+    BookmarksIsBookmarked { url: String },
+    #[serde(rename = "bookmarks.toggle")]
+    BookmarksToggle {
+        title: String,
+        url: String,
+        parent_id: Option<i64>,
+    },
+    #[serde(rename = "bookmarks.createFolder")]
+    BookmarksCreateFolder {
+        title: String,
+        parent_id: Option<i64>,
+    },
+    #[serde(rename = "bookmarks.delete")]
+    BookmarksDelete { id: i64 },
+    #[serde(rename = "bookmarks.importNetscape")]
+    BookmarksImportNetscape { html: String },
+
+    #[serde(rename = "downloads.list")]
+    DownloadsList,
+    #[serde(rename = "downloads.action")]
+    DownloadsAction { id: i64, action: String },
+    #[serde(rename = "downloads.clearFinished")]
+    DownloadsClearFinished,
+
+    #[serde(rename = "permissions.list")]
+    PermissionsList,
+    #[serde(rename = "permissions.set")]
+    PermissionsSet {
+        origin: String,
+        permission: String,
+        decision: String,
+    },
+    #[serde(rename = "permissions.delete")]
+    PermissionsDelete { origin: String, permission: String },
+    #[serde(rename = "permissions.respondPrompt")]
+    PermissionsRespondPrompt {
+        window_id: WindowId,
+        prompt_id: u64,
+        allow: bool,
+        remember: bool,
+    },
+
+    #[serde(rename = "settings.setRestoreSession")]
+    SettingsSetRestoreSession { enabled: bool },
+
+    #[serde(rename = "split.toggle")]
+    SplitToggle {
+        window_id: WindowId,
+        tab_id: Option<TabId>,
+    },
+    #[serde(rename = "split.close")]
+    SplitClose { window_id: WindowId },
+    #[serde(rename = "split.setRatio")]
+    SplitSetRatio { window_id: WindowId, ratio_pct: u8 },
+
+    #[serde(rename = "devtools.toggle")]
+    DevToolsToggle { window_id: WindowId },
+    #[serde(rename = "devtools.close")]
+    DevToolsClose { window_id: WindowId },
+    #[serde(rename = "devtools.setDock")]
+    DevToolsSetDock {
+        window_id: WindowId,
+        dock: DevToolsDock,
+    },
+    #[serde(rename = "devtools.setRatio")]
+    DevToolsSetRatio { window_id: WindowId, ratio_pct: u8 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -232,6 +312,25 @@ pub enum BridgeResponse {
         count: usize,
     },
     BlockerStats(BlockerStats),
+    HistoryItems(Vec<HistoryItem>),
+    BookmarkItems(Vec<BookmarkItem>),
+    BookmarkToggled {
+        bookmarked: bool,
+    },
+    BookmarksImported {
+        count: usize,
+    },
+    DownloadItems(Vec<DownloadItem>),
+    PermissionItems(Vec<SitePermissionItem>),
+    SplitState {
+        split_tab_id: Option<TabId>,
+        ratio_pct: u8,
+    },
+    DevToolsState {
+        open: bool,
+        dock: DevToolsDock,
+        ratio_pct: u8,
+    },
 }
 
 /// Side-effect commands that the engine/window layer must execute after
@@ -327,6 +426,28 @@ pub enum HostEffect {
     BroadcastMemory,
     BroadcastBlocker,
     UpdateBlockerLists,
+    RelayoutWindow {
+        window_id: WindowId,
+    },
+    OpenDevTools {
+        window_id: WindowId,
+    },
+    CloseDevTools {
+        window_id: WindowId,
+    },
+    DownloadControl {
+        id: i64,
+        action: String,
+    },
+    ResolvePermissionPrompt {
+        window_id: WindowId,
+        prompt_id: u64,
+        allow: bool,
+        remember: bool,
+    },
+    BroadcastBookmarks,
+    BroadcastDownloads,
+    PersistSession,
 }
 
 pub struct DispatchOutput {
@@ -979,6 +1100,368 @@ pub fn dispatch_request(
             response: BridgeResponse::BlockerStats(blocker.stats()),
             effects: vec![HostEffect::UpdateBlockerLists],
         }),
+        BridgeRequest::HistoryList { query, limit } => {
+            let max = limit.unwrap_or(150).clamp(1, 500);
+            let items = match storage {
+                Some(db) => {
+                    if let Some(q) = query.as_deref() {
+                        db.search_history(q, max).unwrap_or_default()
+                    } else {
+                        db.list_history(max).unwrap_or_default()
+                    }
+                }
+                None => Vec::new(),
+            };
+            Ok(DispatchOutput {
+                response: BridgeResponse::HistoryItems(items),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::HistoryDelete { id } => {
+            if let Some(db) = storage {
+                let _ = db.delete_history_item(id);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::Ok,
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::HistoryClear => {
+            if let Some(db) = storage {
+                let _ = db.clear_history();
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::Ok,
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::BookmarksList => {
+            let items = storage
+                .map(|db| db.list_bookmarks_all(500).unwrap_or_default())
+                .unwrap_or_default();
+            Ok(DispatchOutput {
+                response: BridgeResponse::BookmarkItems(items),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::BookmarksIsBookmarked { url } => {
+            let bookmarked = storage
+                .and_then(|db| db.is_url_bookmarked(&url).ok())
+                .unwrap_or(false);
+            Ok(DispatchOutput {
+                response: BridgeResponse::BookmarkToggled { bookmarked },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::BookmarksToggle {
+            title,
+            url,
+            parent_id,
+        } => {
+            let Some(db) = storage else {
+                return Err(BridgeError::InvalidArgument(
+                    "local database unavailable".into(),
+                ));
+            };
+            if url.trim().is_empty() || url.trim().starts_with("seu://") {
+                return Err(BridgeError::InvalidArgument(
+                    "cannot bookmark empty or internal seu:// URL".into(),
+                ));
+            }
+            let bookmarked = db
+                .toggle_bookmark(&title, &url, parent_id)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::BookmarkToggled { bookmarked },
+                effects: vec![HostEffect::BroadcastBookmarks],
+            })
+        }
+        BridgeRequest::BookmarksCreateFolder { title, parent_id } => {
+            let Some(db) = storage else {
+                return Err(BridgeError::InvalidArgument(
+                    "local database unavailable".into(),
+                ));
+            };
+            if title.trim().is_empty() || title.len() > 80 {
+                return Err(BridgeError::InvalidArgument(
+                    "folder title must be 1..=80 chars".into(),
+                ));
+            }
+            db.create_bookmark_folder(&title, parent_id)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let items = db.list_bookmarks_all(500).unwrap_or_default();
+            Ok(DispatchOutput {
+                response: BridgeResponse::BookmarkItems(items),
+                effects: vec![HostEffect::BroadcastBookmarks],
+            })
+        }
+        BridgeRequest::BookmarksDelete { id } => {
+            if let Some(db) = storage {
+                let _ = db.delete_bookmark(id);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::Ok,
+                effects: vec![HostEffect::BroadcastBookmarks],
+            })
+        }
+        BridgeRequest::BookmarksImportNetscape { html } => {
+            let Some(db) = storage else {
+                return Err(BridgeError::InvalidArgument(
+                    "local database unavailable".into(),
+                ));
+            };
+            let count = db
+                .import_netscape_html(&html)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::BookmarksImported { count },
+                effects: vec![HostEffect::BroadcastBookmarks],
+            })
+        }
+        BridgeRequest::DownloadsList => {
+            let items = storage
+                .map(|db| db.list_downloads(120).unwrap_or_default())
+                .unwrap_or_default();
+            Ok(DispatchOutput {
+                response: BridgeResponse::DownloadItems(items),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::DownloadsAction { id, action } => {
+            if action == "remove" {
+                if let Some(db) = storage {
+                    let _ = db.delete_download(id);
+                }
+                return Ok(DispatchOutput {
+                    response: BridgeResponse::Ok,
+                    effects: vec![HostEffect::BroadcastDownloads],
+                });
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::Ok,
+                effects: vec![HostEffect::DownloadControl { id, action }],
+            })
+        }
+        BridgeRequest::DownloadsClearFinished => {
+            if let Some(db) = storage {
+                let _ = db.clear_finished_downloads();
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::Ok,
+                effects: vec![HostEffect::BroadcastDownloads],
+            })
+        }
+        BridgeRequest::PermissionsList => {
+            let items = storage
+                .map(|db| db.list_permissions().unwrap_or_default())
+                .unwrap_or_default();
+            Ok(DispatchOutput {
+                response: BridgeResponse::PermissionItems(items),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::PermissionsSet {
+            origin,
+            permission,
+            decision,
+        } => {
+            if decision != "allow" && decision != "deny" {
+                return Err(BridgeError::InvalidArgument(
+                    "decision must be 'allow' or 'deny'".into(),
+                ));
+            }
+            if let Some(db) = storage {
+                let _ = db.set_permission(&origin, &permission, &decision);
+            }
+            let items = storage
+                .map(|db| db.list_permissions().unwrap_or_default())
+                .unwrap_or_default();
+            Ok(DispatchOutput {
+                response: BridgeResponse::PermissionItems(items),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::PermissionsDelete { origin, permission } => {
+            if let Some(db) = storage {
+                let _ = db.delete_permission(&origin, &permission);
+            }
+            let items = storage
+                .map(|db| db.list_permissions().unwrap_or_default())
+                .unwrap_or_default();
+            Ok(DispatchOutput {
+                response: BridgeResponse::PermissionItems(items),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::PermissionsRespondPrompt {
+            window_id,
+            prompt_id,
+            allow,
+            remember,
+        } => Ok(DispatchOutput {
+            response: BridgeResponse::Ok,
+            effects: vec![
+                HostEffect::ResolvePermissionPrompt {
+                    window_id,
+                    prompt_id,
+                    allow,
+                    remember,
+                },
+                HostEffect::CloseOverlay { window_id },
+            ],
+        }),
+        BridgeRequest::SettingsSetRestoreSession { enabled } => {
+            core.settings.restore_session_on_startup = enabled;
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::SplitToggle { window_id, tab_id } => {
+            let (paired, created_new) = core.toggle_split_view(window_id, tab_id)?;
+            let mut effects = Vec::new();
+            if let Some(pid) = paired {
+                let url = core
+                    .get_tab(pid)
+                    .map(|t| t.url.clone())
+                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                if created_new {
+                    effects.push(HostEffect::CreateTabView {
+                        window_id,
+                        tab_id: pid,
+                        url,
+                    });
+                } else {
+                    let (sx, sy) = core
+                        .tab_memory_meta(pid)
+                        .map(|m| (m.scroll_x, m.scroll_y))
+                        .unwrap_or((0, 0));
+                    effects.push(HostEffect::WakeTabView {
+                        window_id,
+                        tab_id: pid,
+                        url,
+                        scroll_x: sx,
+                        scroll_y: sy,
+                    });
+                }
+            }
+            effects.push(HostEffect::RelayoutWindow { window_id });
+            effects.push(HostEffect::BroadcastState { window_id });
+            effects.push(HostEffect::BroadcastMemory);
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::SplitState {
+                    split_tab_id: snap.split_tab_id,
+                    ratio_pct: snap.split_ratio_pct,
+                },
+                effects,
+            })
+        }
+        BridgeRequest::SplitClose { window_id } => {
+            core.close_split_view(window_id)?;
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::SplitState {
+                    split_tab_id: snap.split_tab_id,
+                    ratio_pct: snap.split_ratio_pct,
+                },
+                effects: vec![
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ],
+            })
+        }
+        BridgeRequest::SplitSetRatio {
+            window_id,
+            ratio_pct,
+        } => {
+            let clamped = core.set_split_ratio(window_id, ratio_pct)?;
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::SplitState {
+                    split_tab_id: snap.split_tab_id,
+                    ratio_pct: clamped,
+                },
+                effects: vec![
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ],
+            })
+        }
+        BridgeRequest::DevToolsToggle { window_id } => {
+            let open = core.toggle_devtools(window_id)?;
+            let snap = core.window_snapshot(window_id)?;
+            let effects = if open {
+                vec![
+                    HostEffect::OpenDevTools { window_id },
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ]
+            } else {
+                vec![
+                    HostEffect::CloseDevTools { window_id },
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ]
+            };
+            Ok(DispatchOutput {
+                response: BridgeResponse::DevToolsState {
+                    open,
+                    dock: snap.devtools_dock,
+                    ratio_pct: snap.devtools_ratio_pct,
+                },
+                effects,
+            })
+        }
+        BridgeRequest::DevToolsClose { window_id } => {
+            core.close_devtools(window_id)?;
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::DevToolsState {
+                    open: false,
+                    dock: snap.devtools_dock,
+                    ratio_pct: snap.devtools_ratio_pct,
+                },
+                effects: vec![
+                    HostEffect::CloseDevTools { window_id },
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ],
+            })
+        }
+        BridgeRequest::DevToolsSetDock { window_id, dock } => {
+            core.set_devtools_dock(window_id, dock)?;
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::DevToolsState {
+                    open: snap.devtools_open,
+                    dock,
+                    ratio_pct: snap.devtools_ratio_pct,
+                },
+                effects: vec![
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ],
+            })
+        }
+        BridgeRequest::DevToolsSetRatio {
+            window_id,
+            ratio_pct,
+        } => {
+            let clamped = core.set_devtools_ratio(window_id, ratio_pct)?;
+            let snap = core.window_snapshot(window_id)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::DevToolsState {
+                    open: snap.devtools_open,
+                    dock: snap.devtools_dock,
+                    ratio_pct: clamped,
+                },
+                effects: vec![
+                    HostEffect::RelayoutWindow { window_id },
+                    HostEffect::BroadcastState { window_id },
+                ],
+            })
+        }
     }
 }
 

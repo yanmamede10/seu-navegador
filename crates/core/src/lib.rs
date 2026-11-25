@@ -164,6 +164,41 @@ pub struct ClosedTabRecord {
     pub group_id: Option<GroupId>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DevToolsDock {
+    #[default]
+    Right,
+    Bottom,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedGroup {
+    pub title: String,
+    pub color: String,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedTab {
+    pub url: String,
+    pub title: String,
+    pub pinned: bool,
+    pub group_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedWindow {
+    pub tabs: Vec<SavedTab>,
+    pub groups: Vec<SavedGroup>,
+    pub active_tab_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SavedSession {
+    pub windows: Vec<SavedWindow>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowSnapshot {
     pub id: WindowId,
@@ -171,6 +206,24 @@ pub struct WindowSnapshot {
     pub active_tab_id: Option<TabId>,
     pub tabs: Vec<TabInfo>,
     pub groups: Vec<TabGroup>,
+    #[serde(default)]
+    pub split_tab_id: Option<TabId>,
+    #[serde(default = "default_split_ratio")]
+    pub split_ratio_pct: u8,
+    #[serde(default)]
+    pub devtools_open: bool,
+    #[serde(default)]
+    pub devtools_dock: DevToolsDock,
+    #[serde(default = "default_devtools_ratio")]
+    pub devtools_ratio_pct: u8,
+}
+
+fn default_split_ratio() -> u8 {
+    55
+}
+
+fn default_devtools_ratio() -> u8 {
+    38
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,6 +242,8 @@ pub struct CoreSettings {
     pub blocker_enabled: bool,
     #[serde(default)]
     pub blocker_allowlist: Vec<String>,
+    #[serde(default = "default_true")]
+    pub restore_session_on_startup: bool,
 }
 
 fn default_true() -> bool {
@@ -207,6 +262,7 @@ impl Default for CoreSettings {
             memory_policy: MemoryPolicy::default(),
             blocker_enabled: true,
             blocker_allowlist: Vec::new(),
+            restore_session_on_startup: true,
         }
     }
 }
@@ -219,6 +275,11 @@ struct WindowEntry {
     active_tab_id: Option<TabId>,
     groups: Vec<TabGroup>,
     closed_tabs: VecDeque<ClosedTabRecord>,
+    split_tab_id: Option<TabId>,
+    split_ratio_pct: u8,
+    devtools_open: bool,
+    devtools_dock: DevToolsDock,
+    devtools_ratio_pct: u8,
 }
 
 const MAX_CLOSED_TABS_PER_WINDOW: usize = 25;
@@ -256,6 +317,11 @@ impl BrowserCore {
             active_tab_id: None,
             groups: Vec::new(),
             closed_tabs: VecDeque::new(),
+            split_tab_id: None,
+            split_ratio_pct: default_split_ratio(),
+            devtools_open: false,
+            devtools_dock: DevToolsDock::Right,
+            devtools_ratio_pct: default_devtools_ratio(),
         };
         self.windows.insert(window_id, entry);
         self.window_order.push(window_id);
@@ -309,6 +375,11 @@ impl BrowserCore {
             active_tab_id: win.active_tab_id,
             tabs,
             groups: win.groups.clone(),
+            split_tab_id: win.split_tab_id,
+            split_ratio_pct: win.split_ratio_pct,
+            devtools_open: win.devtools_open,
+            devtools_dock: win.devtools_dock,
+            devtools_ratio_pct: win.devtools_ratio_pct,
         })
     }
 
@@ -397,10 +468,15 @@ impl BrowserCore {
         }
 
         let prev_active = win.active_tab_id;
+        // If clicking the tab currently docked in the right split pane, smoothly swap panes.
+        if win.split_tab_id == Some(tab_id) {
+            win.split_tab_id = prev_active.filter(|&id| id != tab_id);
+        }
+        let split_id = win.split_tab_id;
         win.active_tab_id = Some(tab_id);
 
         if let Some(prev_id) = prev_active {
-            if prev_id != tab_id {
+            if prev_id != tab_id && split_id != Some(prev_id) {
                 if let Some(prev_tab) = self.tabs.get_mut(&prev_id) {
                     if prev_tab.state == TabLifecycleState::Active {
                         prev_tab.state = TabLifecycleState::Background;
@@ -457,17 +533,24 @@ impl BrowserCore {
         let next_active = if win.active_tab_id == Some(tab_id) {
             if win.tab_ids.is_empty() {
                 win.active_tab_id = None;
+                win.split_tab_id = None;
                 None
             } else {
                 let next_idx = pos.min(win.tab_ids.len() - 1);
                 let next_id = win.tab_ids[next_idx];
                 win.active_tab_id = Some(next_id);
+                if win.split_tab_id == Some(next_id) {
+                    win.split_tab_id = None;
+                }
                 if let Some(next_tab) = self.tabs.get_mut(&next_id) {
                     next_tab.state = TabLifecycleState::Active;
                 }
                 Some(next_id)
             }
         } else {
+            if win.split_tab_id == Some(tab_id) {
+                win.split_tab_id = None;
+            }
             win.active_tab_id
         };
 
@@ -1081,6 +1164,307 @@ impl BrowserCore {
         self.activate_tab(window_id, next_id)?;
         Ok(Some(next_id))
     }
+
+    // -------------------------------------------------------------------------
+    // Split View & Docked DevTools
+    // -------------------------------------------------------------------------
+
+    /// Toggles Split View for `window_id`. If closing, returns `Ok((None, false))`.
+    /// If opening, pairs `secondary_tab_id` (or picks another tab / creates a new one)
+    /// and returns `Ok((Some(paired_tab_id), created_new_tab))`.
+    pub fn toggle_split_view(
+        &mut self,
+        window_id: WindowId,
+        secondary_tab_id: Option<TabId>,
+    ) -> Result<(Option<TabId>, bool), CoreError> {
+        let (already_open, active_id, candidate) = {
+            let win = self
+                .windows
+                .get(&window_id)
+                .ok_or(CoreError::WindowNotFound(window_id))?;
+            let other = secondary_tab_id
+                .filter(|id| win.tab_ids.contains(id) && Some(*id) != win.active_tab_id)
+                .or_else(|| {
+                    win.tab_ids
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|&id| Some(id) != win.active_tab_id)
+                });
+            (win.split_tab_id.is_some(), win.active_tab_id, other)
+        };
+
+        if already_open && secondary_tab_id.is_none() {
+            self.close_split_view(window_id)?;
+            return Ok((None, false));
+        }
+
+        let (paired_id, created_new) = if let Some(tid) = candidate {
+            (tid, false)
+        } else {
+            let new_id = self.create_tab(window_id, None, false)?;
+            if let Some(aid) = active_id {
+                let _ = self.activate_tab(window_id, aid);
+            }
+            (new_id, true)
+        };
+
+        if let Some(win) = self.windows.get_mut(&window_id) {
+            win.split_tab_id = Some(paired_id);
+        }
+        if let Some(tab) = self.tabs.get_mut(&paired_id) {
+            tab.state = TabLifecycleState::Active;
+        }
+        if let Some(meta) = self.tab_meta.get_mut(&paired_id) {
+            meta.last_active_ms = unix_now_ms();
+            meta.slept_at_ms = None;
+        }
+        self.recompute_tab_counts();
+        Ok((Some(paired_id), created_new))
+    }
+
+    pub fn close_split_view(&mut self, window_id: WindowId) -> Result<(), CoreError> {
+        let prev_split = {
+            let win = self
+                .windows
+                .get_mut(&window_id)
+                .ok_or(CoreError::WindowNotFound(window_id))?;
+            win.split_tab_id.take()
+        };
+        if let Some(tid) = prev_split {
+            let is_active = self.windows.get(&window_id).and_then(|w| w.active_tab_id) == Some(tid);
+            if !is_active {
+                if let Some(tab) = self.tabs.get_mut(&tid) {
+                    if tab.state == TabLifecycleState::Active {
+                        tab.state = TabLifecycleState::Background;
+                    }
+                }
+            }
+        }
+        self.recompute_tab_counts();
+        Ok(())
+    }
+
+    pub fn set_split_ratio(&mut self, window_id: WindowId, ratio_pct: u8) -> Result<u8, CoreError> {
+        let win = self
+            .windows
+            .get_mut(&window_id)
+            .ok_or(CoreError::WindowNotFound(window_id))?;
+        win.split_ratio_pct = ratio_pct.clamp(25, 75);
+        Ok(win.split_ratio_pct)
+    }
+
+    pub fn toggle_devtools(&mut self, window_id: WindowId) -> Result<bool, CoreError> {
+        let win = self
+            .windows
+            .get_mut(&window_id)
+            .ok_or(CoreError::WindowNotFound(window_id))?;
+        win.devtools_open = !win.devtools_open;
+        Ok(win.devtools_open)
+    }
+
+    pub fn close_devtools(&mut self, window_id: WindowId) -> Result<(), CoreError> {
+        let win = self
+            .windows
+            .get_mut(&window_id)
+            .ok_or(CoreError::WindowNotFound(window_id))?;
+        win.devtools_open = false;
+        Ok(())
+    }
+
+    pub fn set_devtools_dock(
+        &mut self,
+        window_id: WindowId,
+        dock: DevToolsDock,
+    ) -> Result<(), CoreError> {
+        let win = self
+            .windows
+            .get_mut(&window_id)
+            .ok_or(CoreError::WindowNotFound(window_id))?;
+        win.devtools_dock = dock;
+        Ok(())
+    }
+
+    pub fn set_devtools_ratio(
+        &mut self,
+        window_id: WindowId,
+        ratio_pct: u8,
+    ) -> Result<u8, CoreError> {
+        let win = self
+            .windows
+            .get_mut(&window_id)
+            .ok_or(CoreError::WindowNotFound(window_id))?;
+        win.devtools_ratio_pct = ratio_pct.clamp(20, 70);
+        Ok(win.devtools_ratio_pct)
+    }
+
+    // -------------------------------------------------------------------------
+    // Session Export & Restore (non-active tabs restore in Sleeping state)
+    // -------------------------------------------------------------------------
+
+    pub fn export_session(&self) -> SavedSession {
+        let mut windows = Vec::new();
+        for &wid in &self.window_order {
+            let Some(win) = self.windows.get(&wid) else {
+                continue;
+            };
+            if win.incognito || win.tab_ids.is_empty() {
+                continue;
+            }
+            let group_index_map: HashMap<GroupId, usize> = win
+                .groups
+                .iter()
+                .enumerate()
+                .map(|(i, g)| (g.id, i))
+                .collect();
+            let groups = win
+                .groups
+                .iter()
+                .map(|g| SavedGroup {
+                    title: g.title.clone(),
+                    color: g.color.clone(),
+                    collapsed: g.collapsed,
+                })
+                .collect();
+
+            let mut tabs = Vec::new();
+            let mut active_tab_index = 0usize;
+            for (idx, &tid) in win.tab_ids.iter().enumerate() {
+                let Some(tab) = self.tabs.get(&tid) else {
+                    continue;
+                };
+                if win.active_tab_id == Some(tid) {
+                    active_tab_index = idx;
+                }
+                tabs.push(SavedTab {
+                    url: tab.url.clone(),
+                    title: tab.title.clone(),
+                    pinned: tab.pinned,
+                    group_index: tab
+                        .group_id
+                        .and_then(|gid| group_index_map.get(&gid).copied()),
+                });
+            }
+            if !tabs.is_empty() {
+                windows.push(SavedWindow {
+                    tabs,
+                    groups,
+                    active_tab_index: active_tab_index.min(win.tab_ids.len().saturating_sub(1)),
+                });
+            }
+        }
+        SavedSession { windows }
+    }
+
+    /// Restores a previously exported session. Per SPEC §11, only each window's active tab
+    /// starts `Active`; all other restored tabs start `Sleeping` so restored sessions consume
+    /// minimal baseline RAM. Returns `(window_id, active_tab_id, active_url)` to spawn live views.
+    pub fn restore_session(&mut self, session: &SavedSession) -> Vec<(WindowId, TabId, String)> {
+        let mut spawned = Vec::new();
+        let now = unix_now_ms();
+
+        for saved_win in &session.windows {
+            if saved_win.tabs.is_empty() {
+                continue;
+            }
+            self.next_window_id += 1;
+            let window_id = self.next_window_id;
+
+            let mut restored_groups = Vec::new();
+            let mut group_id_by_idx = Vec::new();
+            for g in &saved_win.groups {
+                self.next_group_id += 1;
+                let gid = self.next_group_id;
+                group_id_by_idx.push(gid);
+                restored_groups.push(TabGroup {
+                    id: gid,
+                    title: g.title.clone(),
+                    color: g.color.clone(),
+                    collapsed: g.collapsed,
+                });
+            }
+
+            let active_idx = saved_win
+                .active_tab_index
+                .min(saved_win.tabs.len().saturating_sub(1));
+            let mut tab_ids = Vec::with_capacity(saved_win.tabs.len());
+            let mut active_tab_id = 0;
+            let mut active_url = NEWTAB_URL.to_string();
+
+            for (idx, st) in saved_win.tabs.iter().enumerate() {
+                self.next_tab_id += 1;
+                let tab_id = self.next_tab_id;
+                let is_active = idx == active_idx;
+                let group_id = st
+                    .group_index
+                    .and_then(|gi| group_id_by_idx.get(gi).copied());
+                let state = if is_active {
+                    TabLifecycleState::Active
+                } else {
+                    TabLifecycleState::Sleeping
+                };
+
+                let tab = TabInfo {
+                    id: tab_id,
+                    window_id,
+                    url: st.url.clone(),
+                    title: if st.title.is_empty() {
+                        st.url.clone()
+                    } else {
+                        st.title.clone()
+                    },
+                    favicon: None,
+                    loading: false,
+                    can_go_back: false,
+                    can_go_forward: false,
+                    pinned: st.pinned,
+                    audible: false,
+                    state,
+                    group_id,
+                    has_thumbnail: false,
+                    sleep_protected_reason: None,
+                    blocked_count: 0,
+                };
+                self.tabs.insert(tab_id, tab);
+
+                let mut meta = TabMemoryMeta {
+                    last_active_ms: now,
+                    slept_at_ms: if is_active { None } else { Some(now) },
+                    ..Default::default()
+                };
+                meta.record_navigation(st.url.clone(), st.title.clone());
+                self.tab_meta.insert(tab_id, meta);
+
+                tab_ids.push(tab_id);
+                if is_active {
+                    active_tab_id = tab_id;
+                    active_url = st.url.clone();
+                }
+            }
+
+            self.windows.insert(
+                window_id,
+                WindowEntry {
+                    id: window_id,
+                    incognito: false,
+                    tab_ids,
+                    active_tab_id: Some(active_tab_id),
+                    groups: restored_groups,
+                    closed_tabs: VecDeque::new(),
+                    split_tab_id: None,
+                    split_ratio_pct: default_split_ratio(),
+                    devtools_open: false,
+                    devtools_dock: DevToolsDock::Right,
+                    devtools_ratio_pct: default_devtools_ratio(),
+                },
+            );
+            self.window_order.push(window_id);
+            spawned.push((window_id, active_tab_id, active_url));
+        }
+
+        self.recompute_tab_counts();
+        spawned
+    }
 }
 
 fn unix_now_ms() -> u64 {
@@ -1241,5 +1625,60 @@ mod tests {
         let (w2, _) = core.create_window(false, None);
         assert_eq!(core.move_tab_to_window(t2, w2), Ok(w1));
         assert_eq!(core.get_tab(t2).map(|t| t.window_id), Some(w2));
+    }
+
+    #[test]
+    fn manages_split_view_devtools_and_sleeping_session_restore() {
+        let mut core = BrowserCore::new();
+        let (w1, t1) = core.create_window(false, Some("https://example.com/"));
+        let t2 = core
+            .create_tab(w1, Some("https://rust-lang.org/"), false)
+            .ok()
+            .unwrap_or(0);
+        let gid = core
+            .create_tab_group(w1, "Work".into(), "#4FD8FF".into(), &[t2])
+            .ok()
+            .unwrap_or(0);
+        assert_ne!(gid, 0);
+
+        // Toggle Split View pairs t2 beside t1 without creating an extra tab.
+        let (paired, created_new) = core
+            .toggle_split_view(w1, None)
+            .ok()
+            .unwrap_or((None, true));
+        assert_eq!(paired, Some(t2));
+        assert!(!created_new);
+        assert_eq!(core.set_split_ratio(w1, 62), Ok(62));
+
+        // DevTools dock and ratio
+        assert_eq!(core.toggle_devtools(w1), Ok(true));
+        assert!(core.set_devtools_dock(w1, DevToolsDock::Bottom).is_ok());
+        assert_eq!(core.set_devtools_ratio(w1, 45), Ok(45));
+
+        // Export & restore session: active tab stays Active, inactive tab starts Sleeping!
+        let saved = core.export_session();
+        assert_eq!(saved.windows.len(), 1);
+        assert_eq!(saved.windows[0].tabs.len(), 2);
+        assert_eq!(saved.windows[0].groups.len(), 1);
+
+        let mut restored_core = BrowserCore::new();
+        let spawned = restored_core.restore_session(&saved);
+        assert_eq!(spawned.len(), 1);
+        let (rw, r_active, r_url) = &spawned[0];
+        assert_eq!(r_url, "https://example.com/");
+        let snap = restored_core.window_snapshot(*rw).ok();
+        assert!(snap.is_some());
+        if let Some(s) = snap {
+            assert_eq!(s.tabs.len(), 2);
+            assert_eq!(s.groups.len(), 1);
+            let active_tab = s.tabs.iter().find(|t| t.id == *r_active);
+            let sleeping_tab = s.tabs.iter().find(|t| t.id != *r_active);
+            assert_eq!(active_tab.map(|t| t.state), Some(TabLifecycleState::Active));
+            assert_eq!(
+                sleeping_tab.map(|t| t.state),
+                Some(TabLifecycleState::Sleeping)
+            );
+            assert_eq!(t1, 1);
+        }
     }
 }

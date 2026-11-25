@@ -13,6 +13,7 @@ import {
   type MemoryPolicy,
   type MemoryStats,
   type QuickShortcut,
+  type SitePermissionItem,
   type WindowSnapshot,
 } from "./bridge";
 import { setLocale } from "./i18n";
@@ -20,7 +21,7 @@ import { setLocale } from "./i18n";
 const root = document.getElementById("settings-root") as HTMLDivElement;
 const windowId = getWindowIdFromQuery();
 
-type SettingsTab = "shortcuts" | "memory" | "blocker" | "import" | "quick";
+type SettingsTab = "shortcuts" | "memory" | "blocker" | "session" | "import" | "quick";
 
 let activeTab: SettingsTab = "shortcuts";
 let currentSettings: CoreSettings = {
@@ -62,6 +63,7 @@ let importQuickShortcuts = false;
 let importing = false;
 let statusMessage: { text: string; isError: boolean } | null = null;
 let dataSummary: DataSummaryPayload = { bookmarks: [], history: [] };
+let savedPermissions: SitePermissionItem[] = [];
 let recordingActionId: string | null = null;
 
 interface ShortcutMeta {
@@ -103,6 +105,11 @@ const SHORTCUT_CATALOG: ShortcutMeta[] = [
   { id: "zoom.out", group: "ui", pt: "Diminuir zoom", en: "Zoom out" },
   { id: "zoom.reset", group: "ui", pt: "Resetar zoom (100%)", en: "Reset zoom (100%)" },
   { id: "overlay.toggleMenu", group: "ui", pt: "Abrir / fechar menu", en: "Toggle menu" },
+  { id: "devtools.toggle", group: "ui", pt: "DevTools acoplado (F12)", en: "Docked DevTools (F12)" },
+  { id: "split.toggle", group: "ui", pt: "Split View (duas abas lado a lado)", en: "Split View (two tabs side by side)" },
+  { id: "bookmarks.toggle", group: "nav", pt: "Favoritar página atual", en: "Bookmark current page" },
+  { id: "nav.openHistory", group: "nav", pt: "Abrir Histórico", en: "Open History" },
+  { id: "nav.openDownloads", group: "nav", pt: "Abrir Downloads", en: "Open Downloads" },
 ];
 
 function isEn(): boolean {
@@ -277,6 +284,7 @@ function render(): void {
     ["shortcuts", "fa-solid fa-keyboard", l("Atalhos", "Shortcuts")],
     ["memory", "fa-solid fa-microchip", l("Memória", "Memory")],
     ["blocker", "fa-solid fa-shield-halved", l("Bloqueador", "Blocker")],
+    ["session", "fa-solid fa-lock", l("Sessão & Permissões", "Session & Permissions")],
     ["import", "fa-solid fa-file-import", l("Importar", "Import")],
     ["quick", "fa-solid fa-compact-disc", l("CDs", "CDs")],
   ];
@@ -311,6 +319,8 @@ function render(): void {
     shell.appendChild(renderMemoryPanel());
   } else if (activeTab === "blocker") {
     shell.appendChild(renderBlockerPanel());
+  } else if (activeTab === "session") {
+    shell.appendChild(renderSessionPermissionsPanel());
   } else if (activeTab === "import") {
     shell.appendChild(renderImportPanel());
   } else {
@@ -1034,6 +1044,104 @@ function renderBlockerPanel(): HTMLElement {
   return card;
 }
 
+function renderSessionPermissionsPanel(): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "20px";
+
+  const sessCard = document.createElement("section");
+  sessCard.className = "panel-card";
+  sessCard.innerHTML = `<div class="panel-head"><h2><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>${l("Restaurar Sessão e Páginas Internas", "Session Restore & Internal Pages")}</span></h2></div>`;
+
+  const checks = document.createElement("div");
+  checks.className = "checks-row";
+  checks.appendChild(
+    makeCheckbox(
+      l(
+        "Restaurar janelas, abas e grupos ao abrir (abas inativas iniciam dormindo para economizar RAM)",
+        "Restore windows, tabs and groups on startup (inactive tabs start sleeping to save RAM)",
+      ),
+      currentSettings.restore_session_on_startup !== false,
+      (v) => {
+        void callBridge<CoreSettings>("settings.setRestoreSession", { enabled: v }).then(
+          (updated) => {
+            if (updated) currentSettings = updated;
+            statusMessage = {
+              text: l("Preferência de sessão salva.", "Session preference saved."),
+              isError: false,
+            };
+            render();
+          },
+        );
+      },
+    ),
+  );
+  sessCard.appendChild(checks);
+
+  const navRow = document.createElement("div");
+  navRow.className = "settings-tabs";
+  for (const [href, ic, lbl] of [
+    ["seu://history/", "fa-solid fa-clock-rotate-left", l("Abrir Histórico", "Open History")],
+    ["seu://bookmarks/", "fa-solid fa-bookmark", l("Abrir Favoritos", "Open Bookmarks")],
+    ["seu://downloads/", "fa-solid fa-download", l("Abrir Downloads", "Open Downloads")],
+  ] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn";
+    b.innerHTML = `<i class="${ic}" aria-hidden="true"></i><span>${lbl}</span>`;
+    b.addEventListener("click", () => void navigateInActiveTab(href));
+    navRow.appendChild(b);
+  }
+  sessCard.appendChild(navRow);
+  wrap.appendChild(sessCard);
+
+  const permCard = document.createElement("section");
+  permCard.className = "panel-card";
+  permCard.innerHTML = `<div class="panel-head"><h2><i class="fa-solid fa-lock" aria-hidden="true"></i><span>${l("Permissões de sites salvas", "Saved site permissions")} (${savedPermissions.length})</span></h2></div>`;
+
+  const list = document.createElement("div");
+  list.className = "shortcut-list";
+  if (savedPermissions.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = l(
+      "Nenhuma permissão salva ainda. Quando um site pedir câmera, microfone, notificações ou localização, sua decisão aparecerá aqui.",
+      "No saved permissions yet. When a site requests camera, mic, notifications, or location, your decision appears here.",
+    );
+    list.appendChild(empty);
+  } else {
+    for (const p of savedPermissions) {
+      const row = document.createElement("div");
+      row.className = "shortcut-row";
+      const lbl = document.createElement("span");
+      lbl.className = "shortcut-name";
+      lbl.textContent = `${p.origin} — ${p.permission} (${p.decision.toUpperCase()})`;
+      row.appendChild(lbl);
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn btn-danger";
+      del.innerHTML = `<i class="fa-solid fa-trash" aria-hidden="true"></i>`;
+      del.addEventListener("click", () => {
+        void callBridge<SitePermissionItem[]>("permissions.delete", {
+          origin: p.origin,
+          permission: p.permission,
+        }).then((items) => {
+          savedPermissions = items ?? [];
+          render();
+        });
+      });
+      row.appendChild(del);
+      list.appendChild(row);
+    }
+  }
+  permCard.appendChild(list);
+  wrap.appendChild(permCard);
+
+  return wrap;
+}
+
 function makeCheckbox(
   label: string,
   checked: boolean,
@@ -1075,11 +1183,12 @@ onBridgeEvent((event) => {
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme, mem, blk] = await Promise.all([
+  const [settings, theme, mem, blk, perms] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
     callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
     callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
+    callBridge<SitePermissionItem[]>("permissions.list").catch(() => []),
   ]);
   if (settings) {
     currentSettings = settings;
@@ -1094,6 +1203,7 @@ async function bootstrap(): Promise<void> {
   if (blk) {
     currentBlocker = blk;
   }
+  savedPermissions = perms ?? [];
   await refreshProfilesAndData();
 }
 

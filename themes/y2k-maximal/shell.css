@@ -428,6 +428,38 @@ body {
   color: var(--seu-text-muted);
 }
 
+.y2k-omni-star {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--seu-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.y2k-omni-star:hover,
+.y2k-omni-star .fa-solid {
+  color: #B6FF3B;
+}
+
+.y2k-tab[data-state~="split"] {
+  border-color: #4FD8FF;
+  background: #10205E;
+  color: #E6E9FF;
+}
+
+[data-split="true"] .y2k-split-btn {
+  border-color: #4FD8FF;
+  background: #4FD8FF;
+  color: #070B24;
+}
+
 .y2k-ram-pill {
   min-height: 32px;
   display: inline-flex;

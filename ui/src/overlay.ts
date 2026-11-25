@@ -15,7 +15,8 @@ const windowId = getWindowIdFromQuery();
 const menuList = document.getElementById("menu-list") as HTMLDivElement;
 
 let openedAt = 0;
-let currentPanel: "menu" | "memory" | "blocker" = "menu";
+let currentPanel: "menu" | "memory" | "blocker" | "permission" = "menu";
+let pendingPermission: { prompt_id: number; origin: string; permission: string } | null = null;
 let currentSnapshot: WindowSnapshot | null = null;
 let currentMemory: MemoryStats = {
   total_private_mb: 0,
@@ -89,9 +90,25 @@ function renderActivePanel(): void {
     renderMemoryPopover();
   } else if (currentPanel === "blocker") {
     renderBlockerPopover();
+  } else if (currentPanel === "permission") {
+    renderPermissionPrompt();
   } else {
     renderMenu();
   }
+}
+
+function navigateMenuUrl(url: string): void {
+  void (async () => {
+    const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
+      window_id: windowId,
+    });
+    if (snap?.active_tab_id) {
+      await callBridge("tabs.navigate", {
+        tab_id: snap.active_tab_id,
+        input: url,
+      });
+    }
+  })();
 }
 
 function renderMenu(): void {
@@ -131,18 +148,47 @@ function renderMenu(): void {
     void callBridge("memory.sleepInactive");
   });
 
-  addActionButton("fa-solid fa-sliders", t("menu.settings"), () => {
-    void (async () => {
-      const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
-        window_id: windowId,
+  addActionButton("fa-solid fa-table-columns", t("menu.splitView"), () => {
+    void callBridge("split.toggle", { window_id: windowId });
+  });
+
+  addActionButton("fa-solid fa-terminal", t("menu.devtools"), () => {
+    void callBridge("devtools.toggle", { window_id: windowId });
+  });
+
+  if (currentSnapshot?.devtools_open) {
+    const dockRow = document.createElement("div");
+    dockRow.className = "pill-row";
+    for (const [side, label] of [
+      ["right", l("DevTools Direita", "Dock Right")],
+      ["bottom", l("DevTools Baixo", "Dock Bottom")],
+    ] as const) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `pill-btn${currentSnapshot.devtools_dock === side ? " active" : ""}`;
+      btn.textContent = label;
+      btn.addEventListener("click", () => {
+        void callBridge("devtools.setDock", { window_id: windowId, dock: side });
       });
-      if (snap?.active_tab_id) {
-        await callBridge("tabs.navigate", {
-          tab_id: snap.active_tab_id,
-          input: "seu://settings/",
-        });
-      }
-    })();
+      dockRow.appendChild(btn);
+    }
+    menuList.appendChild(dockRow);
+  }
+
+  addActionButton("fa-solid fa-clock-rotate-left", t("menu.history"), () => {
+    navigateMenuUrl("seu://history/");
+  });
+
+  addActionButton("fa-solid fa-bookmark", t("menu.bookmarks"), () => {
+    navigateMenuUrl("seu://bookmarks/");
+  });
+
+  addActionButton("fa-solid fa-download", t("menu.downloads"), () => {
+    navigateMenuUrl("seu://downloads/");
+  });
+
+  addActionButton("fa-solid fa-sliders", t("menu.settings"), () => {
+    navigateMenuUrl("seu://settings/");
   });
 
   const sep = document.createElement("div");
@@ -477,6 +523,87 @@ function renderBlockerPopover(): void {
   menuList.appendChild(updateBtn);
 }
 
+function renderPermissionPrompt(): void {
+  menuList.innerHTML = "";
+  const req = pendingPermission;
+  if (!req) {
+    renderMenu();
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "menu-label";
+  header.innerHTML = `<i class="fa-solid fa-lock" aria-hidden="true"></i> ${l("Permissão de site", "Site permission")}`;
+  menuList.appendChild(header);
+
+  const info = document.createElement("div");
+  info.className = "mem-stat-box";
+  info.style.marginBottom = "8px";
+  const hostEl = document.createElement("span");
+  hostEl.className = "mem-tab-title";
+  hostEl.textContent = req.origin;
+  const permEl = document.createElement("span");
+  permEl.className = "mem-stat-lbl";
+  permEl.textContent = l(
+    `Solicita acesso a: ${req.permission}`,
+    `Requests access to: ${req.permission}`,
+  );
+  info.appendChild(hostEl);
+  info.appendChild(permEl);
+  menuList.appendChild(info);
+
+  let remember = true;
+  const remLabel = document.createElement("label");
+  remLabel.className = "menu-btn";
+  remLabel.style.gap = "8px";
+  const remChk = document.createElement("input");
+  remChk.type = "checkbox";
+  remChk.checked = true;
+  remChk.addEventListener("change", () => {
+    remember = remChk.checked;
+  });
+  remLabel.appendChild(remChk);
+  const remTxt = document.createElement("span");
+  remTxt.textContent = l("Lembrar escolha para este site", "Remember decision for this site");
+  remLabel.appendChild(remTxt);
+  menuList.appendChild(remLabel);
+
+  const row = document.createElement("div");
+  row.className = "pill-row";
+
+  const allowBtn = document.createElement("button");
+  allowBtn.type = "button";
+  allowBtn.className = "pill-btn active";
+  allowBtn.textContent = l("Permitir", "Allow");
+  allowBtn.addEventListener("click", () => {
+    void callBridge("permissions.respondPrompt", {
+      window_id: windowId,
+      prompt_id: req.prompt_id,
+      allow: true,
+      remember,
+    });
+    pendingPermission = null;
+  });
+
+  const denyBtn = document.createElement("button");
+  denyBtn.type = "button";
+  denyBtn.className = "pill-btn";
+  denyBtn.textContent = l("Bloquear", "Deny");
+  denyBtn.addEventListener("click", () => {
+    void callBridge("permissions.respondPrompt", {
+      window_id: windowId,
+      prompt_id: req.prompt_id,
+      allow: false,
+      remember,
+    });
+    pendingPermission = null;
+  });
+
+  row.appendChild(allowBtn);
+  row.appendChild(denyBtn);
+  menuList.appendChild(row);
+}
+
 async function refreshSnapshotAndMemory(): Promise<void> {
   const [snap, mem, blk] = await Promise.all([
     callBridge<WindowSnapshot>("windows.getSnapshot", { window_id: windowId }).catch(
@@ -504,7 +631,16 @@ window.addEventListener("blur", () => {
 });
 
 onBridgeEvent((event) => {
-  if (event.type === "overlay" && event.panel !== "closed") {
+  if (event.type === "permissionPrompt") {
+    openedAt = Date.now();
+    pendingPermission = {
+      prompt_id: event.prompt_id,
+      origin: event.origin,
+      permission: event.permission,
+    };
+    currentPanel = "permission";
+    renderActivePanel();
+  } else if (event.type === "overlay" && event.panel !== "closed") {
     openedAt = Date.now();
     currentPanel =
       event.panel === "memory"

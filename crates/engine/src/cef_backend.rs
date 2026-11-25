@@ -25,11 +25,12 @@ use seu_blocker::{
 use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{
     shortcuts::{match_shortcut_vk, ShortcutAction},
-    BrowserCore, CoreSettings, TabId, WindowId, WindowSnapshot,
+    BrowserCore, CoreSettings, DevToolsDock, SavedSession, TabId, WindowId, WindowSnapshot,
 };
-use seu_storage::Storage;
+use seu_storage::{DownloadItem as StoredDownloadItem, Storage};
 use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, OnceLock, RwLock,
@@ -45,20 +46,48 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 const CEF_EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
 const CEF_EVENTFLAG_CONTROL_DOWN: u32 = 1 << 2;
 const CEF_EVENTFLAG_ALT_DOWN: u32 = 1 << 3;
+const SPLITTER_GAP_PX: i32 = 6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitterAxis {
+    SplitVertical,
+    DevToolsVertical,
+    DevToolsHorizontal,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewKind {
     Shell(WindowId),
     Overlay(WindowId),
+    DevTools(WindowId),
     Tab { window_id: WindowId, tab_id: TabId },
 }
 
 impl ViewKind {
     fn window_id(self) -> WindowId {
         match self {
-            Self::Shell(w) | Self::Overlay(w) | Self::Tab { window_id: w, .. } => w,
+            Self::Shell(w)
+            | Self::Overlay(w)
+            | Self::DevTools(w)
+            | Self::Tab { window_id: w, .. } => w,
         }
     }
+}
+
+enum PendingPermissionCallback {
+    Media {
+        callback: MediaAccessCallback,
+        requested_mask: u32,
+    },
+    Prompt {
+        callback: PermissionPromptCallback,
+    },
+}
+
+struct PendingPermissionEntry {
+    origin: String,
+    permission: String,
+    callback: PendingPermissionCallback,
 }
 
 /// Host window operations supplied by `crates/app` (Win32 frameless windows).
@@ -79,10 +108,15 @@ pub trait NativeWindowHost: Send + Sync {
 struct WindowViews {
     shell: Option<Browser>,
     overlay: Option<Browser>,
+    devtools: Option<Browser>,
+    devtools_target_tab: Option<TabId>,
     shell_height: i32,
     overlay_open: bool,
     overlay_opened_at: Instant,
     overlay_bounds: RectPx,
+    split_divider: Option<RectPx>,
+    devtools_divider: Option<RectPx>,
+    dragging_splitter: Option<SplitterAxis>,
     incognito: bool,
 }
 
@@ -98,6 +132,9 @@ struct SharedState {
     incognito_contexts: HashMap<WindowId, RequestContext>,
     pending_scroll_restore: HashMap<TabId, (i32, i32)>,
     pending_sleep_batch: Option<(u32, usize, Vec<TabId>)>,
+    download_callbacks: HashMap<i64, DownloadItemCallback>,
+    pending_permissions: HashMap<u64, PendingPermissionEntry>,
+    next_permission_prompt_id: u64,
     probe_token: String,
     monitor_running: Arc<AtomicBool>,
 }
@@ -170,6 +207,9 @@ impl CefEngine {
             incognito_contexts: HashMap::new(),
             pending_scroll_restore: HashMap::new(),
             pending_sleep_batch: None,
+            download_callbacks: HashMap::new(),
+            pending_permissions: HashMap::new(),
+            next_permission_prompt_id: 1,
             probe_token,
             monitor_running: Arc::new(AtomicBool::new(false)),
         }));
@@ -229,6 +269,143 @@ impl CefEngine {
         }
         handle_native_window_closed(state, window_id);
     }
+
+    pub fn hit_test_splitter(window_id: WindowId, x: i32, y: i32) -> Option<SplitterAxis> {
+        let state = ENGINE_STATE.get()?;
+        let guard = state.lock().ok()?;
+        let win = guard.windows.get(&window_id)?;
+        if let Some(r) = win.devtools_divider {
+            if point_in_rect(x, y, r) {
+                let dock = guard
+                    .core
+                    .window_snapshot(window_id)
+                    .ok()
+                    .map(|s| s.devtools_dock)
+                    .unwrap_or(DevToolsDock::Right);
+                return Some(match dock {
+                    DevToolsDock::Right => SplitterAxis::DevToolsVertical,
+                    DevToolsDock::Bottom => SplitterAxis::DevToolsHorizontal,
+                });
+            }
+        }
+        if let Some(r) = win.split_divider {
+            if point_in_rect(x, y, r) {
+                return Some(SplitterAxis::SplitVertical);
+            }
+        }
+        None
+    }
+
+    pub fn begin_splitter_drag(window_id: WindowId, x: i32, y: i32) -> bool {
+        let Some(axis) = Self::hit_test_splitter(window_id, x, y) else {
+            return false;
+        };
+        if let Some(state) = ENGINE_STATE.get() {
+            if let Ok(mut guard) = state.lock() {
+                if let Some(win) = guard.windows.get_mut(&window_id) {
+                    win.dragging_splitter = Some(axis);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn update_splitter_drag(window_id: WindowId, x: i32, y: i32) -> bool {
+        let Some(state) = ENGINE_STATE.get() else {
+            return false;
+        };
+        let (axis, host, shell_h) = match state.lock() {
+            Ok(guard) => {
+                let Some(win) = guard.windows.get(&window_id) else {
+                    return false;
+                };
+                let Some(axis) = win.dragging_splitter else {
+                    return false;
+                };
+                (axis, guard.host.clone(), win.shell_height)
+            }
+            Err(_) => return false,
+        };
+        let Some((_, rect)) = host.get_window_rect(window_id) else {
+            return false;
+        };
+        let safe_w = rect.width.max(200);
+        let safe_h = rect.height.max(120);
+        let work_h = (safe_h - shell_h).max(100);
+
+        if let Ok(mut guard) = state.lock() {
+            match axis {
+                SplitterAxis::SplitVertical => {
+                    let dt_w = guard
+                        .core
+                        .window_snapshot(window_id)
+                        .ok()
+                        .filter(|s| s.devtools_open && s.devtools_dock == DevToolsDock::Right)
+                        .map(|s| (safe_w * i32::from(s.devtools_ratio_pct)) / 100 + SPLITTER_GAP_PX)
+                        .unwrap_or(0);
+                    let avail_w = (safe_w - dt_w).max(200);
+                    let pct = ((x.clamp(100, avail_w - 100) * 100) / avail_w).clamp(25, 75) as u8;
+                    let _ = guard.core.set_split_ratio(window_id, pct);
+                }
+                SplitterAxis::DevToolsVertical => {
+                    let right_w = (safe_w - x).clamp(180, safe_w - 200);
+                    let pct = ((right_w * 100) / safe_w).clamp(20, 70) as u8;
+                    let _ = guard.core.set_devtools_ratio(window_id, pct);
+                }
+                SplitterAxis::DevToolsHorizontal => {
+                    let bottom_h = (safe_h - y).clamp(120, work_h - 120);
+                    let pct = ((bottom_h * 100) / work_h).clamp(20, 70) as u8;
+                    let _ = guard.core.set_devtools_ratio(window_id, pct);
+                }
+            }
+        }
+        Self::notify_window_resized(window_id, safe_w, safe_h);
+        true
+    }
+
+    pub fn end_splitter_drag(window_id: WindowId) -> bool {
+        let Some(state) = ENGINE_STATE.get() else {
+            return false;
+        };
+        if let Ok(mut guard) = state.lock() {
+            if let Some(win) = guard.windows.get_mut(&window_id) {
+                return win.dragging_splitter.take().is_some();
+            }
+        }
+        false
+    }
+}
+
+fn point_in_rect(x: i32, y: i32, r: RectPx) -> bool {
+    x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
+}
+
+fn decorate_internal_url(url: &str, window_id: WindowId) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    match trimmed {
+        "seu://newtab" => format!("seu://newtab/?win={window_id}"),
+        "seu://settings" => format!("seu://settings/?win={window_id}"),
+        "seu://history" => format!("seu://history/?win={window_id}"),
+        "seu://bookmarks" => format!("seu://bookmarks/?win={window_id}"),
+        "seu://downloads" => format!("seu://downloads/?win={window_id}"),
+        _ => url.to_string(),
+    }
+}
+
+fn normalize_internal_display_url(raw_url: &str) -> String {
+    for prefix in [
+        "seu://newtab/",
+        "seu://settings/",
+        "seu://history/",
+        "seu://bookmarks/",
+        "seu://downloads/",
+    ] {
+        if raw_url.starts_with(prefix) {
+            return prefix.to_string();
+        }
+    }
+    raw_url.to_string()
 }
 
 impl BrowserBackend for CefEngine {
@@ -278,13 +455,7 @@ impl BrowserBackend for CefEngine {
         } else {
             None
         };
-        let target_url = if url == seu_core::NEWTAB_URL {
-            format!("seu://newtab/?win={window_id}")
-        } else if url == "seu://settings" || url == "seu://settings/" {
-            format!("seu://settings/?win={window_id}")
-        } else {
-            url.to_string()
-        };
+        let target_url = decorate_internal_url(url, window_id);
         spawn_child_browser(
             self.state.clone(),
             ViewKind::Tab { window_id, tab_id },
@@ -300,15 +471,8 @@ impl BrowserBackend for CefEngine {
         // trigger `on_before_browse` / `on_loading_state_change` on the UI thread.
         let nav = self.state.lock().ok().and_then(|guard| {
             let browser = guard.tab_browsers.get(&tab_id)?.clone();
-            let target = if url == seu_core::NEWTAB_URL {
-                let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
-                format!("seu://newtab/?win={win_id}")
-            } else if url == "seu://settings" || url == "seu://settings/" {
-                let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
-                format!("seu://settings/?win={win_id}")
-            } else {
-                url.to_string()
-            };
+            let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
+            let target = decorate_internal_url(url, win_id);
             Some((browser, target))
         });
 
@@ -610,10 +774,125 @@ fn broadcast_window_state(state: &Arc<Mutex<SharedState>>, window_id: WindowId) 
             }
         }
     }
+    persist_session_snapshot(state);
+}
+
+fn persist_session_snapshot(state: &Arc<Mutex<SharedState>>) {
+    let (session, storage_arc) = {
+        let Ok(guard) = state.lock() else {
+            return;
+        };
+        (guard.core.export_session(), guard.storage.clone())
+    };
+    if session.windows.is_empty() {
+        return;
+    }
+    if let Ok(json) = serde_json::to_string(&session) {
+        if let Ok(sg) = storage_arc.lock() {
+            if let Some(db) = sg.as_ref() {
+                let _ = db.set_setting("saved_session_v1", &json);
+            }
+        }
+    }
+}
+
+fn broadcast_bookmarks_all(state: &Arc<Mutex<SharedState>>) {
+    let (chrome_views, tab_browsers) = collect_privileged_views(state);
+    let payload = serde_json::json!({ "type": "bookmarksChanged" });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
+fn broadcast_downloads_all(state: &Arc<Mutex<SharedState>>) {
+    let (chrome_views, tab_browsers) = collect_privileged_views(state);
+    let items = {
+        let storage_arc = state.lock().ok().map(|g| g.storage.clone());
+        storage_arc
+            .and_then(|s| {
+                s.lock()
+                    .ok()
+                    .and_then(|g| g.as_ref().and_then(|db| db.list_downloads(120).ok()))
+            })
+            .unwrap_or_default()
+    };
+    let payload = serde_json::json!({ "type": "downloads", "items": items });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
+fn collect_privileged_views(state: &Arc<Mutex<SharedState>>) -> (Vec<Browser>, Vec<Browser>) {
+    let Ok(guard) = state.lock() else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut chrome = Vec::new();
+    for win in guard.windows.values() {
+        if let Some(s) = &win.shell {
+            chrome.push(s.clone());
+        }
+        if let Some(o) = &win.overlay {
+            chrome.push(o.clone());
+        }
+    }
+    let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+    (chrome, tabs)
+}
+
+fn inject_devtools_theme_css(devtools: &Browser, tokens_css: &str) {
+    let css = format!(
+        "{tokens_css}\n\
+         :root, .-theme-with-dark-background, body {{\n\
+           --sys-color-cdt-base-container: var(--seu-bg) !important;\n\
+           --sys-color-base: var(--seu-bg) !important;\n\
+           --sys-color-surface: var(--seu-surface) !important;\n\
+           --sys-color-surface1: var(--seu-surface) !important;\n\
+           --sys-color-surface2: var(--seu-surface2) !important;\n\
+           --sys-color-surface3: var(--seu-surface2) !important;\n\
+           --sys-color-header-container: var(--seu-surface) !important;\n\
+           --sys-color-on-surface: var(--seu-text) !important;\n\
+           --sys-color-on-surface-subtle: var(--seu-text-muted) !important;\n\
+           --sys-color-primary: var(--seu-accent) !important;\n\
+           --sys-color-divider: var(--seu-border) !important;\n\
+           --sys-color-neutral-outline: var(--seu-border) !important;\n\
+           background-color: var(--seu-bg) !important;\n\
+           color: var(--seu-text) !important;\n\
+         }}\n\
+         .tabbed-pane-header, .toolbar {{\n\
+           background-color: var(--seu-surface) !important;\n\
+           border-color: var(--seu-border) !important;\n\
+         }}\n"
+    );
+    if let Ok(css_json) = serde_json::to_string(&css) {
+        if let Some(frame) = devtools.main_frame() {
+            let js = format!(
+                "(function(){{var id='seu-devtools-theme';var s=document.getElementById(id);if(!s){{s=document.createElement('style');s.id=id;(document.head||document.documentElement).appendChild(s);}}s.textContent={css_json};}})();"
+            );
+            let code = CefString::from(js.as_str());
+            let url = CefString::from("seu://internal/devtools-theme");
+            frame.execute_java_script(Some(&code), Some(&url), 0);
+        }
+    }
 }
 
 fn broadcast_theme_all(state: &Arc<Mutex<SharedState>>) {
-    let (theme, chrome_views, tab_browsers) = {
+    let (theme, chrome_views, devtools_views, tab_browsers) = {
         let Ok(guard) = state.lock() else {
             return;
         };
@@ -625,6 +904,7 @@ fn broadcast_theme_all(state: &Arc<Mutex<SharedState>>) {
             return;
         };
         let mut chrome = Vec::new();
+        let mut devtools = Vec::new();
         for win in guard.windows.values() {
             if let Some(s) = &win.shell {
                 chrome.push(s.clone());
@@ -632,14 +912,20 @@ fn broadcast_theme_all(state: &Arc<Mutex<SharedState>>) {
             if let Some(o) = &win.overlay {
                 chrome.push(o.clone());
             }
+            if let Some(dt) = &win.devtools {
+                devtools.push(dt.clone());
+            }
         }
         let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
-        (active, chrome, tabs)
+        (active, chrome, devtools, tabs)
     };
 
     let payload = serde_json::json!({ "type": "theme", "theme": theme });
     for b in chrome_views {
         push_js_event(&b, &payload);
+    }
+    for dt in devtools_views {
+        inject_devtools_theme_css(&dt, &theme.tokens_css);
     }
     for b in tab_browsers {
         if let Some(frame) = b.main_frame() {
@@ -759,7 +1045,19 @@ fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: 
         state: state.clone(),
     };
 
-    let (shell_height, active_tab_id, all_tab_ids, overlay_open, overlay_bounds) = {
+    let (
+        shell_height,
+        active_tab_id,
+        split_tab_id,
+        split_ratio_pct,
+        devtools_open,
+        devtools_dock,
+        devtools_ratio_pct,
+        devtools_browser,
+        all_tab_ids,
+        overlay_open,
+        overlay_bounds,
+    ) = {
         let Ok(guard) = state.lock() else {
             return;
         };
@@ -768,12 +1066,26 @@ fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: 
         };
         let snap: Option<WindowSnapshot> = guard.core.window_snapshot(window_id).ok();
         let active = snap.as_ref().and_then(|s| s.active_tab_id);
+        let split_id = snap.as_ref().and_then(|s| s.split_tab_id);
+        let split_ratio = snap.as_ref().map(|s| s.split_ratio_pct).unwrap_or(55);
+        let dt_open = snap.as_ref().map(|s| s.devtools_open).unwrap_or(false);
+        let dt_dock = snap
+            .as_ref()
+            .map(|s| s.devtools_dock)
+            .unwrap_or(DevToolsDock::Right);
+        let dt_ratio = snap.as_ref().map(|s| s.devtools_ratio_pct).unwrap_or(38);
         let ids: Vec<TabId> = snap
             .map(|s| s.tabs.into_iter().map(|t| t.id).collect())
             .unwrap_or_default();
         (
             win.shell_height,
             active,
+            split_id,
+            split_ratio,
+            dt_open,
+            dt_dock,
+            dt_ratio,
+            win.devtools.clone(),
             ids,
             win.overlay_open,
             win.overlay_bounds,
@@ -794,20 +1106,114 @@ fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: 
         },
     );
 
-    let content_rect = RectPx {
+    let mut content_rect = RectPx {
         x: 0,
         y: sh,
         width: safe_w,
         height: (safe_h - sh).max(1),
     };
+    let mut devtools_rect: Option<RectPx> = None;
+    let mut devtools_divider: Option<RectPx> = None;
+
+    if devtools_open && devtools_browser.is_some() {
+        match devtools_dock {
+            DevToolsDock::Right => {
+                let dt_w = ((content_rect.width * i32::from(devtools_ratio_pct)) / 100)
+                    .clamp(180, (content_rect.width - 200).max(180));
+                let main_w = (content_rect.width - dt_w - SPLITTER_GAP_PX).max(120);
+                devtools_divider = Some(RectPx {
+                    x: content_rect.x + main_w,
+                    y: content_rect.y,
+                    width: SPLITTER_GAP_PX,
+                    height: content_rect.height,
+                });
+                devtools_rect = Some(RectPx {
+                    x: content_rect.x + main_w + SPLITTER_GAP_PX,
+                    y: content_rect.y,
+                    width: (content_rect.width - main_w - SPLITTER_GAP_PX).max(1),
+                    height: content_rect.height,
+                });
+                content_rect.width = main_w;
+            }
+            DevToolsDock::Bottom => {
+                let dt_h = ((content_rect.height * i32::from(devtools_ratio_pct)) / 100)
+                    .clamp(120, (content_rect.height - 120).max(120));
+                let main_h = (content_rect.height - dt_h - SPLITTER_GAP_PX).max(100);
+                devtools_divider = Some(RectPx {
+                    x: content_rect.x,
+                    y: content_rect.y + main_h,
+                    width: content_rect.width,
+                    height: SPLITTER_GAP_PX,
+                });
+                devtools_rect = Some(RectPx {
+                    x: content_rect.x,
+                    y: content_rect.y + main_h + SPLITTER_GAP_PX,
+                    width: content_rect.width,
+                    height: (content_rect.height - main_h - SPLITTER_GAP_PX).max(1),
+                });
+                content_rect.height = main_h;
+            }
+        }
+    }
+
+    let (left_rect, right_rect, split_divider) = if let Some(sid) = split_tab_id {
+        if Some(sid) != active_tab_id && content_rect.width >= 320 {
+            let left_w = ((content_rect.width * i32::from(split_ratio_pct)) / 100)
+                .clamp(140, (content_rect.width - 140 - SPLITTER_GAP_PX).max(140));
+            let right_w = (content_rect.width - left_w - SPLITTER_GAP_PX).max(120);
+            (
+                RectPx {
+                    x: content_rect.x,
+                    y: content_rect.y,
+                    width: left_w,
+                    height: content_rect.height,
+                },
+                Some(RectPx {
+                    x: content_rect.x + left_w + SPLITTER_GAP_PX,
+                    y: content_rect.y,
+                    width: right_w,
+                    height: content_rect.height,
+                }),
+                Some(RectPx {
+                    x: content_rect.x + left_w,
+                    y: content_rect.y,
+                    width: SPLITTER_GAP_PX,
+                    height: content_rect.height,
+                }),
+            )
+        } else {
+            (content_rect, None, None)
+        }
+    } else {
+        (content_rect, None, None)
+    };
+
+    if let Ok(mut guard) = state.lock() {
+        if let Some(win) = guard.windows.get_mut(&window_id) {
+            win.split_divider = split_divider;
+            win.devtools_divider = devtools_divider;
+        }
+    }
 
     for tid in all_tab_ids {
-        let is_active = Some(tid) == active_tab_id;
-        engine.set_tab_visible(
-            tid,
-            is_active,
-            if is_active { Some(content_rect) } else { None },
-        );
+        if Some(tid) == active_tab_id {
+            engine.set_tab_visible(tid, true, Some(left_rect));
+        } else if Some(tid) == split_tab_id && right_rect.is_some() {
+            engine.set_tab_visible(tid, true, right_rect);
+        } else {
+            engine.set_tab_visible(tid, false, None);
+        }
+    }
+
+    if let Some(dt) = devtools_browser {
+        if let Some(host) = dt.host() {
+            apply_child_hwnd_visibility(
+                host.window_handle(),
+                devtools_open && devtools_rect.is_some(),
+                devtools_rect,
+                false,
+            );
+        }
     }
 
     if overlay_open {
@@ -821,6 +1227,102 @@ fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: 
             height: overlay_bounds.height,
         };
         engine.show_overlay(window_id, updated, "menu");
+    }
+}
+
+fn open_devtools_for_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId) {
+    let (host, target_browser, target_tab_id, existing_dt, shell_h) = match state.lock() {
+        Ok(guard) => {
+            let host = guard.host.clone();
+            let active_tab = guard
+                .core
+                .window_snapshot(window_id)
+                .ok()
+                .and_then(|s| s.active_tab_id);
+            let target = active_tab.and_then(|tid| guard.tab_browsers.get(&tid).cloned());
+            let (existing, sh) = guard
+                .windows
+                .get(&window_id)
+                .map(|w| (w.devtools.clone(), w.shell_height))
+                .unwrap_or((None, 140));
+            (host, target, active_tab, existing, sh)
+        }
+        Err(_) => return,
+    };
+
+    if existing_dt.is_some() {
+        if let Some((_, rect)) = host.get_window_rect(window_id) {
+            relayout_window(state, window_id, rect.width, rect.height);
+        }
+        return;
+    }
+
+    let (Some(target), Some(tid), Some((parent, rect))) = (
+        target_browser,
+        target_tab_id,
+        host.get_window_rect(window_id),
+    ) else {
+        return;
+    };
+
+    let Some(target_host) = target.host() else {
+        return;
+    };
+
+    let dt_w = (rect.width * 38 / 100).max(240);
+    let cef_rect = Rect {
+        x: (rect.width - dt_w).max(0),
+        y: shell_h,
+        width: dt_w,
+        height: (rect.height - shell_h).max(120),
+    };
+    let parent_hwnd = sys::HWND((parent.0 as *mut std::ffi::c_void).cast());
+    let window_info = WindowInfo {
+        runtime_style: RuntimeStyle::ALLOY,
+        ..Default::default()
+    }
+    .set_as_child(parent_hwnd, &cef_rect);
+
+    if let Ok(mut guard) = state.lock() {
+        if let Some(win) = guard.windows.get_mut(&window_id) {
+            win.devtools_target_tab = Some(tid);
+        }
+    }
+
+    let mut dt_client = SeuClient::new(state.clone(), ViewKind::DevTools(window_id));
+    let settings = BrowserSettings::default();
+    target_host.show_dev_tools(
+        Some(&window_info),
+        Some(&mut dt_client),
+        Some(&settings),
+        None,
+    );
+}
+
+fn close_devtools_for_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId) {
+    let (target_browser, dt_browser) = match state.lock() {
+        Ok(mut guard) => {
+            let Some(win) = guard.windows.get_mut(&window_id) else {
+                return;
+            };
+            let target_id = win.devtools_target_tab.take();
+            let dt = win.devtools.take();
+            win.devtools_divider = None;
+            let target = target_id.and_then(|tid| guard.tab_browsers.get(&tid).cloned());
+            (target, dt)
+        }
+        Err(_) => return,
+    };
+
+    if let Some(target) = target_browser {
+        if let Some(h) = target.host() {
+            h.close_dev_tools();
+        }
+    }
+    if let Some(dt) = dt_browser {
+        if let Some(h) = dt.host() {
+            h.close_browser(1);
+        }
     }
 }
 
@@ -848,6 +1350,8 @@ fn create_full_browser_window(
             WindowViews {
                 shell: None,
                 overlay: None,
+                devtools: None,
+                devtools_target_tab: None,
                 shell_height: default_shell_height,
                 overlay_open: false,
                 overlay_opened_at: Instant::now(),
@@ -857,6 +1361,9 @@ fn create_full_browser_window(
                     width: 270,
                     height: 310,
                 },
+                split_divider: None,
+                devtools_divider: None,
+                dragging_splitter: None,
                 incognito,
             },
         );
@@ -910,6 +1417,9 @@ fn create_full_browser_window(
 }
 
 fn handle_native_window_closed(state: &Arc<Mutex<SharedState>>, window_id: WindowId) {
+    // Persist the session BEFORE removing the closing window from `core` so closing
+    // the last window preserves its open tabs and groups for next startup.
+    persist_session_snapshot(state);
     let (browsers_to_close, should_quit) = {
         let Ok(mut guard) = state.lock() else {
             return;
@@ -921,6 +1431,9 @@ fn handle_native_window_closed(state: &Arc<Mutex<SharedState>>, window_id: Windo
             }
             if let Some(o) = win.overlay {
                 to_close.push(o);
+            }
+            if let Some(dt) = win.devtools {
+                to_close.push(dt);
             }
         }
         guard.incognito_contexts.remove(&window_id);
@@ -1037,6 +1550,14 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
                 scroll_x,
                 scroll_y,
             } => {
+                let already_live = state
+                    .lock()
+                    .ok()
+                    .map(|g| g.tab_browsers.contains_key(&tab_id))
+                    .unwrap_or(false);
+                if already_live {
+                    continue;
+                }
                 let (incognito, shell_h) = state
                     .lock()
                     .ok()
@@ -1146,6 +1667,27 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::BroadcastMemory => broadcast_memory_all(state),
             HostEffect::BroadcastBlocker => broadcast_blocker_all(state),
             HostEffect::UpdateBlockerLists => spawn_blocker_list_updater(state.clone(), true),
+            HostEffect::RelayoutWindow { window_id } => {
+                if let Some((_, rect)) = host.get_window_rect(window_id) {
+                    relayout_window(state, window_id, rect.width, rect.height);
+                }
+            }
+            HostEffect::OpenDevTools { window_id } => open_devtools_for_window(state, window_id),
+            HostEffect::CloseDevTools { window_id } => close_devtools_for_window(state, window_id),
+            HostEffect::DownloadControl { id, action } => {
+                handle_download_control(state, id, &action);
+            }
+            HostEffect::ResolvePermissionPrompt {
+                prompt_id,
+                allow,
+                remember,
+                ..
+            } => {
+                resolve_permission_prompt(state, prompt_id, allow, remember);
+            }
+            HostEffect::BroadcastBookmarks => broadcast_bookmarks_all(state),
+            HostEffect::BroadcastDownloads => broadcast_downloads_all(state),
+            HostEffect::PersistSession => persist_session_snapshot(state),
         }
     }
 }
@@ -1442,18 +1984,38 @@ wrap_browser_process_handler! {
             let domain = CefString::from("");
             register_scheme_handler_factory(Some(&scheme), Some(&domain), Some(&mut factory));
 
-            let (router, window_id, tab_id, initial_url) = {
+            let (router, initial_windows) = {
                 let Ok(mut guard) = self.state.lock() else {
                     return;
                 };
                 let router = guard.router.clone();
-                let (wid, tid) = guard.core.create_window(false, None);
-                let url = guard
-                    .core
-                    .get_tab(tid)
-                    .map(|t| t.url.clone())
-                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
-                (router, wid, tid, url)
+
+                let restored = if guard.core.settings.restore_session_on_startup {
+                    let saved_json = guard.storage.lock().ok().and_then(|sg| {
+                        sg.as_ref()
+                            .and_then(|db| db.get_setting("saved_session_v1").ok().flatten())
+                    });
+                    saved_json
+                        .and_then(|raw| serde_json::from_str::<SavedSession>(&raw).ok())
+                        .filter(|s| !s.windows.is_empty())
+                        .map(|s| guard.core.restore_session(&s))
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+
+                let windows = if restored.is_empty() {
+                    let (wid, tid) = guard.core.create_window(false, None);
+                    let url = guard
+                        .core
+                        .get_tab(tid)
+                        .map(|t| t.url.clone())
+                        .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                    vec![(wid, tid, url)]
+                } else {
+                    restored
+                };
+                (router, windows)
             };
 
             router.add_handler(
@@ -1463,7 +2025,9 @@ wrap_browser_process_handler! {
                 true,
             );
 
-            create_full_browser_window(&self.state, window_id, false, tab_id, &initial_url);
+            for (window_id, tab_id, initial_url) in initial_windows {
+                create_full_browser_window(&self.state, window_id, false, tab_id, &initial_url);
+            }
             start_memory_monitor_thread(self.state.clone());
             spawn_blocker_list_updater(self.state.clone(), false);
         }
@@ -1580,6 +2144,14 @@ wrap_client! {
             Some(SeuKeyboardHandler::new(self.state.clone(), self.kind))
         }
 
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(SeuDownloadHandler::new(self.state.clone()))
+        }
+
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(SeuPermissionHandler::new(self.state.clone(), self.kind))
+        }
+
         fn on_process_message_received(
             &self,
             browser: Option<&mut Browser>,
@@ -1617,10 +2189,36 @@ wrap_display_handler! {
                 return;
             };
             let title_str = title.map(|t| t.to_string()).unwrap_or_default();
-            if let Ok(mut guard) = self.state.lock() {
-                let _ = guard
-                    .core
-                    .update_tab_navigation(tab_id, None, Some(title_str), None, None, None);
+            let history_update = if let Ok(mut guard) = self.state.lock() {
+                let _ = guard.core.update_tab_navigation(
+                    tab_id,
+                    None,
+                    Some(title_str.clone()),
+                    None,
+                    None,
+                    None,
+                );
+                let is_incognito = guard
+                    .windows
+                    .get(&window_id)
+                    .map(|w| w.incognito)
+                    .unwrap_or(false);
+                let url = guard.core.get_tab(tab_id).map(|t| t.url.clone());
+                if !is_incognito {
+                    url.filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+                        .map(|u| (u, guard.storage.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some((url, storage_arc)) = history_update {
+                if let Ok(sg) = storage_arc.lock() {
+                    if let Some(db) = sg.as_ref() {
+                        let _ = db.update_latest_history_title(&url, &title_str);
+                    }
+                }
             }
             broadcast_window_state(&self.state, window_id);
         }
@@ -1638,24 +2236,44 @@ wrap_display_handler! {
                 return;
             }
             let raw_url = url.map(|u| u.to_string()).unwrap_or_default();
-            let display_url = if raw_url.starts_with("seu://newtab/") {
-                seu_core::NEWTAB_URL.to_string()
-            } else if raw_url.starts_with("seu://settings/") {
-                "seu://settings/".to_string()
-            } else {
-                raw_url
-            };
+            let display_url = normalize_internal_display_url(&raw_url);
             let can_back = browser.as_ref().map(|b| b.can_go_back() != 0);
             let can_fwd = browser.as_ref().map(|b| b.can_go_forward() != 0);
-            if let Ok(mut guard) = self.state.lock() {
+            let history_record = if let Ok(mut guard) = self.state.lock() {
                 let _ = guard.core.update_tab_navigation(
                     tab_id,
-                    Some(display_url),
+                    Some(display_url.clone()),
                     None,
                     None,
                     can_back,
                     can_fwd,
                 );
+                let is_incognito = guard
+                    .windows
+                    .get(&window_id)
+                    .map(|w| w.incognito)
+                    .unwrap_or(false);
+                if !is_incognito
+                    && (display_url.starts_with("http://") || display_url.starts_with("https://"))
+                {
+                    let title = guard
+                        .core
+                        .get_tab(tab_id)
+                        .map(|t| t.title.clone())
+                        .unwrap_or_else(|| display_url.clone());
+                    Some((display_url, title, guard.storage.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some((u, title, storage_arc)) = history_record {
+                if let Ok(sg) = storage_arc.lock() {
+                    if let Some(db) = sg.as_ref() {
+                        let _ = db.record_history_visit(&u, &title);
+                    }
+                }
             }
             broadcast_window_state(&self.state, window_id);
         }
@@ -1754,10 +2372,23 @@ wrap_load_handler! {
 
         fn on_load_end(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             _http_status_code: ::std::os::raw::c_int,
         ) {
+            if matches!(self.kind, ViewKind::DevTools(_)) {
+                if let Some(dt_browser) = browser {
+                    let tokens_css = self.state.lock().ok().and_then(|g| {
+                        g.themes
+                            .get(&g.core.settings.active_theme_id)
+                            .map(|t| t.tokens_css.clone())
+                    });
+                    if let Some(css) = tokens_css {
+                        inject_devtools_theme_css(dt_browser, &css);
+                    }
+                }
+                return;
+            }
             let ViewKind::Tab { tab_id, .. } = self.kind else {
                 return;
             };
@@ -1858,15 +2489,24 @@ wrap_life_span_handler! {
                         }
                         visibility_update = Some(false);
                     }
+                    ViewKind::DevTools(wid) => {
+                        if let Some(w) = guard.windows.get_mut(&wid) {
+                            w.devtools = Some(browser.clone());
+                        }
+                        visibility_update = Some(true);
+                        broadcast_win = Some(wid);
+                    }
                     ViewKind::Tab { window_id, tab_id } => {
                         guard.tab_browsers.insert(tab_id, browser.clone());
-                        let is_active = guard
+                        let is_visible = guard
                             .core
                             .window_snapshot(window_id)
                             .ok()
-                            .and_then(|s| s.active_tab_id)
-                            == Some(tab_id);
-                        visibility_update = Some(is_active);
+                            .map(|s| {
+                                s.active_tab_id == Some(tab_id) || s.split_tab_id == Some(tab_id)
+                            })
+                            .unwrap_or(false);
+                        visibility_update = Some(is_visible);
                         broadcast_win = Some(window_id);
                     }
                 }
@@ -1875,6 +2515,18 @@ wrap_life_span_handler! {
             if let Some(visible) = visibility_update {
                 if let Some(host) = browser.host() {
                     apply_child_hwnd_visibility(host.window_handle(), visible, None, false);
+                }
+            }
+
+            if let ViewKind::DevTools(wid) = self.kind {
+                let rect_opt = self
+                    .state
+                    .lock()
+                    .ok()
+                    .map(|g| g.host.clone())
+                    .and_then(|h| h.get_window_rect(wid));
+                if let Some((_, rect)) = rect_opt {
+                    relayout_window(&self.state, wid, rect.width, rect.height);
                 }
             }
 
@@ -2445,6 +3097,122 @@ wrap_task! {
                             core.activate_last_tab(wid).ok().flatten()
                         })
                     }
+                    ShortcutAction::ToggleDevTools => {
+                        match guard.core.toggle_devtools(self.window_id) {
+                            Ok(true) => vec![
+                                HostEffect::OpenDevTools {
+                                    window_id: self.window_id,
+                                },
+                                HostEffect::RelayoutWindow {
+                                    window_id: self.window_id,
+                                },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            Ok(false) => vec![
+                                HostEffect::CloseDevTools {
+                                    window_id: self.window_id,
+                                },
+                                HostEffect::RelayoutWindow {
+                                    window_id: self.window_id,
+                                },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            Err(_) => Vec::new(),
+                        }
+                    }
+                    ShortcutAction::BookmarkPage => match active_tab {
+                        Some(tid) => {
+                            let tab_info = guard
+                                .core
+                                .get_tab(tid)
+                                .map(|t| (t.title.clone(), t.url.clone()));
+                            if let Some((title, url)) = tab_info {
+                                if url.starts_with("http://") || url.starts_with("https://") {
+                                    if let Ok(sg) = guard.storage.lock() {
+                                        if let Some(db) = sg.as_ref() {
+                                            let _ = db.toggle_bookmark(&title, &url, None);
+                                        }
+                                    }
+                                    vec![HostEffect::BroadcastBookmarks]
+                                } else {
+                                    Vec::new()
+                                }
+                            } else {
+                                Vec::new()
+                            }
+                        }
+                        None => Vec::new(),
+                    },
+                    ShortcutAction::OpenHistory => match active_tab {
+                        Some(tid) => match guard.core.navigate_tab(tid, "seu://history/") {
+                            Ok(url) => vec![
+                                HostEffect::NavigateTabView { tab_id: tid, url },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            Err(_) => Vec::new(),
+                        },
+                        None => Vec::new(),
+                    },
+                    ShortcutAction::OpenDownloads => match active_tab {
+                        Some(tid) => match guard.core.navigate_tab(tid, "seu://downloads/") {
+                            Ok(url) => vec![
+                                HostEffect::NavigateTabView { tab_id: tid, url },
+                                HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                },
+                            ],
+                            Err(_) => Vec::new(),
+                        },
+                        None => Vec::new(),
+                    },
+                    ShortcutAction::ToggleSplitView => {
+                        match guard.core.toggle_split_view(self.window_id, None) {
+                            Ok((paired, created_new)) => {
+                                let mut out = Vec::new();
+                                if let Some(pid) = paired {
+                                    let url = guard
+                                        .core
+                                        .get_tab(pid)
+                                        .map(|t| t.url.clone())
+                                        .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                                    if created_new {
+                                        out.push(HostEffect::CreateTabView {
+                                            window_id: self.window_id,
+                                            tab_id: pid,
+                                            url,
+                                        });
+                                    } else {
+                                        let (sx, sy) = guard
+                                            .core
+                                            .tab_memory_meta(pid)
+                                            .map(|m| (m.scroll_x, m.scroll_y))
+                                            .unwrap_or((0, 0));
+                                        out.push(HostEffect::WakeTabView {
+                                            window_id: self.window_id,
+                                            tab_id: pid,
+                                            url,
+                                            scroll_x: sx,
+                                            scroll_y: sy,
+                                        });
+                                    }
+                                }
+                                out.push(HostEffect::RelayoutWindow {
+                                    window_id: self.window_id,
+                                });
+                                out.push(HostEffect::BroadcastState {
+                                    window_id: self.window_id,
+                                });
+                                out
+                            }
+                            Err(_) => Vec::new(),
+                        }
+                    }
                     ShortcutAction::ToggleMenu => Vec::new(),
                 }
             };
@@ -2835,6 +3603,499 @@ wrap_task! {
     impl Task {
         fn execute(&self) {
             broadcast_blocker_all(&self.state);
+        }
+    }
+}
+
+wrap_task! {
+    struct BroadcastDownloadsTask {
+        state: Arc<Mutex<SharedState>>,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            broadcast_downloads_all(&self.state);
+        }
+    }
+}
+
+wrap_task! {
+    struct ShowPermissionPromptTask {
+        state: Arc<Mutex<SharedState>>,
+        window_id: WindowId,
+        prompt_id: u64,
+        origin: String,
+        permission: String,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let (host, shell_h, overlay) = match self.state.lock() {
+                Ok(mut guard) => {
+                    let host = guard.host.clone();
+                    let Some(win) = guard.windows.get_mut(&self.window_id) else {
+                        return;
+                    };
+                    let sh = win.shell_height;
+                    win.overlay_open = true;
+                    win.overlay_opened_at = Instant::now();
+                    win.overlay_bounds = RectPx {
+                        x: 16,
+                        y: sh + 4,
+                        width: 360,
+                        height: 220,
+                    };
+                    (host, sh, win.overlay.clone())
+                }
+                Err(_) => return,
+            };
+            let _ = host;
+            if let Some(ov) = overlay {
+                if let Some(h) = ov.host() {
+                    apply_child_hwnd_visibility(
+                        h.window_handle(),
+                        true,
+                        Some(RectPx {
+                            x: 16,
+                            y: shell_h + 4,
+                            width: 360,
+                            height: 220,
+                        }),
+                        true,
+                    );
+                    h.set_focus(1);
+                }
+                push_js_event(
+                    &ov,
+                    &serde_json::json!({
+                        "type": "permissionPrompt",
+                        "prompt_id": self.prompt_id,
+                        "origin": self.origin,
+                        "permission": self.permission,
+                    }),
+                );
+            }
+        }
+    }
+}
+
+fn downloads_dir() -> PathBuf {
+    let home = std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let dir = home.join("Downloads");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+fn unique_download_path(suggested_name: &str) -> PathBuf {
+    let dir = downloads_dir();
+    let clean_name: String = suggested_name
+        .chars()
+        .map(|c| {
+            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let base = if clean_name.trim().is_empty() {
+        "download.bin".to_string()
+    } else {
+        clean_name
+    };
+    let candidate = dir.join(&base);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = candidate
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "download".to_string());
+    let ext = candidate
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    for i in 1..1000 {
+        let next = dir.join(format!("{stem} ({i}){ext}"));
+        if !next.exists() {
+            return next;
+        }
+    }
+    candidate
+}
+
+fn unix_now_secs_i64() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn handle_download_control(state: &Arc<Mutex<SharedState>>, id: i64, action: &str) {
+    let (cb, target_path) = match state.lock() {
+        Ok(guard) => {
+            let cb = guard.download_callbacks.get(&id).cloned();
+            let path = guard.storage.lock().ok().and_then(|sg| {
+                sg.as_ref().and_then(|db| {
+                    db.list_downloads(200)
+                        .ok()
+                        .and_then(|list| list.into_iter().find(|d| d.id == id))
+                        .map(|d| d.target_path)
+                })
+            });
+            (cb, path)
+        }
+        Err(_) => return,
+    };
+
+    match action {
+        "pause" => {
+            if let Some(c) = cb {
+                c.pause();
+            }
+        }
+        "resume" => {
+            if let Some(c) = cb {
+                c.resume();
+            }
+        }
+        "cancel" => {
+            if let Some(c) = cb {
+                c.cancel();
+            }
+        }
+        "open" => {
+            if let Some(path) = target_path {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "start", "", &path])
+                    .spawn();
+            }
+        }
+        "showInFolder" => {
+            if let Some(path) = target_path {
+                let _ = std::process::Command::new("explorer.exe")
+                    .arg(format!("/select,{path}"))
+                    .spawn();
+            }
+        }
+        _ => {}
+    }
+    broadcast_downloads_all(state);
+}
+
+fn resolve_permission_prompt(
+    state: &Arc<Mutex<SharedState>>,
+    prompt_id: u64,
+    allow: bool,
+    remember: bool,
+) {
+    let (entry, storage_arc) = match state.lock() {
+        Ok(mut guard) => (
+            guard.pending_permissions.remove(&prompt_id),
+            guard.storage.clone(),
+        ),
+        Err(_) => return,
+    };
+
+    let Some(entry) = entry else {
+        return;
+    };
+
+    if remember {
+        let decision = if allow { "allow" } else { "deny" };
+        if let Ok(sg) = storage_arc.lock() {
+            if let Some(db) = sg.as_ref() {
+                let _ = db.set_permission(&entry.origin, &entry.permission, decision);
+            }
+        }
+    }
+
+    match entry.callback {
+        PendingPermissionCallback::Media {
+            callback,
+            requested_mask,
+        } => {
+            if allow {
+                callback.cont(requested_mask);
+            } else {
+                callback.cancel();
+            }
+        }
+        PendingPermissionCallback::Prompt { callback } => {
+            callback.cont(if allow {
+                PermissionRequestResult::ACCEPT
+            } else {
+                PermissionRequestResult::DENY
+            });
+        }
+    }
+}
+
+fn permission_mask_label(mask: u32) -> &'static str {
+    // CEF cef_permission_request_types_t / cef_media_access_permission_types_t bitflags
+    if (mask & (1 << 0)) != 0 || (mask & (1 << 1)) != 0 {
+        "media"
+    } else if (mask & (1 << 6)) != 0 {
+        "geolocation"
+    } else if (mask & (1 << 8)) != 0 {
+        "notifications"
+    } else if (mask & (1 << 9)) != 0 {
+        "clipboard"
+    } else {
+        "site-permission"
+    }
+}
+
+wrap_download_handler! {
+    struct SeuDownloadHandler {
+        state: Arc<Mutex<SharedState>>,
+    }
+
+    impl DownloadHandler {
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> ::std::os::raw::c_int {
+            let Some(item) = download_item else {
+                return 0;
+            };
+            let suggested = suggested_name
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| CefString::from(&item.suggested_file_name()).to_string());
+            let target_path = unique_download_path(&suggested);
+            let target_str = target_path.to_string_lossy().to_string();
+            let filename = target_path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| suggested.clone());
+
+            let record = StoredDownloadItem {
+                id: i64::from(item.id()),
+                url: CefString::from(&item.url()).to_string(),
+                filename,
+                target_path: target_str.clone(),
+                total_bytes: item.total_bytes(),
+                received_bytes: item.received_bytes(),
+                state: "in_progress".to_string(),
+                created_at: unix_now_secs_i64(),
+            };
+
+            if let Ok(guard) = self.state.lock() {
+                if let Ok(sg) = guard.storage.lock() {
+                    if let Some(db) = sg.as_ref() {
+                        let _ = db.upsert_download(&record);
+                    }
+                }
+            }
+
+            if let Some(cb) = callback {
+                let cef_path = CefString::from(target_str.as_str());
+                cb.cont(Some(&cef_path), 0);
+            }
+
+            let mut task = BroadcastDownloadsTask::new(self.state.clone());
+            post_task(ThreadId::UI, Some(&mut task));
+            1
+        }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            callback: Option<&mut DownloadItemCallback>,
+        ) {
+            let Some(item) = download_item else {
+                return;
+            };
+            if item.is_valid() == 0 {
+                return;
+            }
+            let id = i64::from(item.id());
+            let full_path = CefString::from(&item.full_path()).to_string();
+            let filename = std::path::Path::new(&full_path)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| CefString::from(&item.suggested_file_name()).to_string());
+
+            let state_str = if item.is_complete() != 0 {
+                "complete"
+            } else if item.is_canceled() != 0 || item.is_interrupted() != 0 {
+                "canceled"
+            } else if item.is_paused() != 0 {
+                "paused"
+            } else {
+                "in_progress"
+            };
+
+            let record = StoredDownloadItem {
+                id,
+                url: CefString::from(&item.url()).to_string(),
+                filename,
+                target_path: full_path,
+                total_bytes: item.total_bytes(),
+                received_bytes: item.received_bytes(),
+                state: state_str.to_string(),
+                created_at: unix_now_secs_i64(),
+            };
+
+            if let Ok(mut guard) = self.state.lock() {
+                if state_str == "complete" || state_str == "canceled" {
+                    guard.download_callbacks.remove(&id);
+                } else if let Some(cb) = callback {
+                    guard.download_callbacks.insert(id, cb.clone());
+                }
+                if let Ok(sg) = guard.storage.lock() {
+                    if let Some(db) = sg.as_ref() {
+                        let _ = db.upsert_download(&record);
+                    }
+                }
+            }
+
+            let mut task = BroadcastDownloadsTask::new(self.state.clone());
+            post_task(ThreadId::UI, Some(&mut task));
+        }
+    }
+}
+
+wrap_permission_handler! {
+    struct SeuPermissionHandler {
+        state: Arc<Mutex<SharedState>>,
+        kind: ViewKind,
+    }
+
+    impl PermissionHandler {
+        fn on_request_media_access_permission(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut MediaAccessCallback>,
+        ) -> ::std::os::raw::c_int {
+            let Some(cb) = callback else {
+                return 0;
+            };
+            let origin = requesting_origin.map(|s| s.to_string()).unwrap_or_default();
+            let perm = "camera-mic".to_string();
+
+            let saved = self.state.lock().ok().and_then(|g| {
+                g.storage
+                    .lock()
+                    .ok()
+                    .and_then(|sg| sg.as_ref().and_then(|db| db.get_permission(&origin, &perm).ok().flatten()))
+            });
+
+            if let Some(decision) = saved {
+                if decision == "allow" {
+                    cb.cont(requested_permissions);
+                } else {
+                    cb.cancel();
+                }
+                return 1;
+            }
+
+            let prompt_id = match self.state.lock() {
+                Ok(mut guard) => {
+                    let id = guard.next_permission_prompt_id;
+                    guard.next_permission_prompt_id += 1;
+                    guard.pending_permissions.insert(
+                        id,
+                        PendingPermissionEntry {
+                            origin: origin.clone(),
+                            permission: perm.clone(),
+                            callback: PendingPermissionCallback::Media {
+                                callback: cb.clone(),
+                                requested_mask: requested_permissions,
+                            },
+                        },
+                    );
+                    id
+                }
+                Err(_) => return 0,
+            };
+
+            let mut task = ShowPermissionPromptTask::new(
+                self.state.clone(),
+                self.kind.window_id(),
+                prompt_id,
+                origin,
+                perm,
+            );
+            post_task(ThreadId::UI, Some(&mut task));
+            1
+        }
+
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            prompt_id: u64,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> ::std::os::raw::c_int {
+            let Some(cb) = callback else {
+                return 0;
+            };
+            let origin = requesting_origin.map(|s| s.to_string()).unwrap_or_default();
+            let perm = permission_mask_label(requested_permissions).to_string();
+
+            let saved = self.state.lock().ok().and_then(|g| {
+                g.storage
+                    .lock()
+                    .ok()
+                    .and_then(|sg| sg.as_ref().and_then(|db| db.get_permission(&origin, &perm).ok().flatten()))
+            });
+
+            if let Some(decision) = saved {
+                cb.cont(if decision == "allow" {
+                    PermissionRequestResult::ACCEPT
+                } else {
+                    PermissionRequestResult::DENY
+                });
+                return 1;
+            }
+
+            let id = if prompt_id > 0 {
+                prompt_id
+            } else {
+                match self.state.lock() {
+                    Ok(mut g) => {
+                        let next = g.next_permission_prompt_id;
+                        g.next_permission_prompt_id += 1;
+                        next
+                    }
+                    Err(_) => return 0,
+                }
+            };
+
+            if let Ok(mut guard) = self.state.lock() {
+                guard.pending_permissions.insert(
+                    id,
+                    PendingPermissionEntry {
+                        origin: origin.clone(),
+                        permission: perm.clone(),
+                        callback: PendingPermissionCallback::Prompt {
+                            callback: cb.clone(),
+                        },
+                    },
+                );
+            }
+
+            let mut task = ShowPermissionPromptTask::new(
+                self.state.clone(),
+                self.kind.window_id(),
+                id,
+                origin,
+                perm,
+            );
+            post_task(ThreadId::UI, Some(&mut task));
+            1
         }
     }
 }

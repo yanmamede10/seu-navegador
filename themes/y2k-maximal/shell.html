@@ -63,8 +63,14 @@
     <form class="y2k-omnibox" data-seu-submit="omnibox">
       <span class="y2k-prompt">&gt;_</span>
       <input class="y2k-url-input" type="text" autocomplete="off" spellcheck="false" data-seu-input="omnibox" data-seu-placeholder-t="nav.omniboxPlaceholder" aria-label="Endereço" />
+      <button type="button" class="y2k-omni-star" data-seu-action="bookmarks.toggle" data-seu-title-t="nav.bookmark" aria-label="Favoritar">
+        <i data-seu-icon="activeTab.bookmarkIcon" aria-hidden="true"></i>
+      </button>
     </form>
 
+    <button type="button" class="y2k-nav-btn y2k-split-btn" data-seu-action="split.toggle" data-seu-title-t="nav.splitView" aria-label="Split View">
+      <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
+    </button>
     <button type="button" class="y2k-ram-pill" data-seu-action="overlay.toggleMemory" data-seu-title-t="badge.ram">
       <i class="fa-solid fa-microchip" aria-hidden="true"></i>
       <span data-seu-bind="memory.badgeText">RAM -- MB</span>

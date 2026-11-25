@@ -69,6 +69,9 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
             "overlay" => "overlay.html",
             "newtab" => "newtab.html",
             "settings" => "settings.html",
+            "history" => "history.html",
+            "bookmarks" => "bookmarks.html",
+            "downloads" => "downloads.html",
             _ => {
                 return placeholder_internal_page(&host);
             }

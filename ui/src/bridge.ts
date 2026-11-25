@@ -29,6 +29,11 @@ export interface WindowSnapshot {
   active_tab_id: number | null;
   tabs: TabInfo[];
   groups: TabGroup[];
+  split_tab_id?: number | null;
+  split_ratio_pct?: number;
+  devtools_open?: boolean;
+  devtools_dock?: "right" | "bottom";
+  devtools_ratio_pct?: number;
 }
 
 export interface QuickShortcut {
@@ -74,6 +79,7 @@ export interface CoreSettings {
   memory_policy?: MemoryPolicy;
   blocker_enabled?: boolean;
   blocker_allowlist?: string[];
+  restore_session_on_startup?: boolean;
 }
 
 export interface DetectedBrowserProfile {
@@ -95,8 +101,10 @@ export interface ImportReport {
 
 export interface BookmarkItem {
   id: number;
+  parent_id?: number | null;
   title: string;
   url: string;
+  is_folder?: boolean;
   created_at: number;
 }
 
@@ -105,6 +113,24 @@ export interface HistoryItem {
   url: string;
   title: string;
   visited_at: number;
+}
+
+export interface DownloadItem {
+  id: number;
+  url: string;
+  filename: string;
+  target_path: string;
+  total_bytes: number;
+  received_bytes: number;
+  state: "in_progress" | "paused" | "complete" | "canceled";
+  created_at: number;
+}
+
+export interface SitePermissionItem {
+  origin: string;
+  permission: string;
+  decision: "allow" | "deny";
+  updated_at: number;
 }
 
 export interface DataSummaryPayload {
@@ -145,6 +171,9 @@ export type BridgeEvent =
   | { type: "memory"; stats: MemoryStats }
   | { type: "blocker"; stats: BlockerStats }
   | { type: "overlay"; panel: string }
+  | { type: "bookmarksChanged" }
+  | { type: "downloads"; items: DownloadItem[] }
+  | { type: "permissionPrompt"; prompt_id: number; origin: string; permission: string }
   | { type: "focusOmnibox" }
   | { type: "toggleMenu" };
 
