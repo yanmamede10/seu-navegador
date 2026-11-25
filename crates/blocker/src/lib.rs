@@ -237,7 +237,7 @@ impl BlockerService {
 fn build_engine(lists: &[&str]) -> AdblockEngine {
     let mut filter_set = FilterSet::new(false);
     for list in lists {
-        filter_set.add_filter_list(*list, ParseOptions::default());
+        filter_set.add_filter_list((*list).to_string(), ParseOptions::default());
     }
     let mut engine = AdblockEngine::new_with_filter_set(filter_set);
     engine.use_resources(scriptlets::builtin_scriptlet_resources());
