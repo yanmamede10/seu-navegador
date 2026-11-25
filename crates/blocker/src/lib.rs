@@ -1,8 +1,8 @@
 //! Ad & tracker blocker powered by Brave's `adblock` Rust engine.
 //!
-//! Ships with an embedded offline baseline (EasyList + EasyPrivacy + uBlock Filters
-//! + YouTube scriptlets) and supports loading cached upstream filter lists updated
-//! in the background (max 1x/day, SPEC §8).
+//! Ships with an embedded offline baseline (EasyList, EasyPrivacy, uBlock Filters,
+//! and YouTube scriptlets) and supports loading cached upstream filter lists
+//! updated in the background (max 1x/day, SPEC §8).
 
 pub mod scriptlets;
 
@@ -170,12 +170,12 @@ impl BlockerService {
     pub fn record_blocked(&mut self, blocked_url: &str) {
         self.total_blocked = self.total_blocked.saturating_add(1);
         let host = extract_host(blocked_url);
-        if !host.is_empty() {
-            if self.recent_blocked.front().map(String::as_str) != Some(host.as_str()) {
-                self.recent_blocked.push_front(host);
-                while self.recent_blocked.len() > MAX_RECENT_BLOCKED {
-                    self.recent_blocked.pop_back();
-                }
+        if !host.is_empty()
+            && self.recent_blocked.front().map(String::as_str) != Some(host.as_str())
+        {
+            self.recent_blocked.push_front(host);
+            while self.recent_blocked.len() > MAX_RECENT_BLOCKED {
+                self.recent_blocked.pop_back();
             }
         }
     }
