@@ -9,6 +9,8 @@ import {
   type DetectedBrowserProfile,
   type ImportReport,
   type LoadedTheme,
+  type MemoryPolicy,
+  type MemoryStats,
   type QuickShortcut,
   type WindowSnapshot,
 } from "./bridge";
@@ -17,7 +19,7 @@ import { setLocale } from "./i18n";
 const root = document.getElementById("settings-root") as HTMLDivElement;
 const windowId = getWindowIdFromQuery();
 
-type SettingsTab = "shortcuts" | "import" | "quick";
+type SettingsTab = "shortcuts" | "memory" | "import" | "quick";
 
 let activeTab: SettingsTab = "shortcuts";
 let currentSettings: CoreSettings = {
@@ -27,6 +29,21 @@ let currentSettings: CoreSettings = {
   game_mode_enabled: false,
   shortcuts: {},
   quick_shortcuts: [],
+  memory_policy: {
+    sleep_timeout_secs: 600,
+    max_live_tabs: null,
+    never_sleep_pinned: true,
+    never_sleep_domains: ["meet.google.com", "discord.com", "web.whatsapp.com"],
+  },
+};
+let currentMemory: MemoryStats = {
+  total_private_mb: 0,
+  total_working_set_mb: 0,
+  process_count: 0,
+  live_tabs_count: 1,
+  sleeping_tabs_count: 0,
+  saved_mb: 0,
+  shared_renderer_detected: false,
 };
 let detectedProfiles: DetectedBrowserProfile[] = [];
 let selectedProfileId = "";
@@ -249,8 +266,9 @@ function render(): void {
   tabs.className = "settings-tabs";
   const tabDefs: [SettingsTab, string, string][] = [
     ["shortcuts", "fa-solid fa-keyboard", l("Atalhos de teclado", "Keyboard shortcuts")],
-    ["import", "fa-solid fa-file-import", l("Importar de outro navegador", "Import from browser")],
-    ["quick", "fa-solid fa-compact-disc", l("Atalhos da Nova Aba", "New Tab shortcuts")],
+    ["memory", "fa-solid fa-microchip", l("Memória", "Memory")],
+    ["import", "fa-solid fa-file-import", l("Importar navegador", "Import browser")],
+    ["quick", "fa-solid fa-compact-disc", l("CDs da Nova Aba", "New Tab CDs")],
   ];
   for (const [id, icon, label] of tabDefs) {
     const btn = document.createElement("button");
@@ -279,6 +297,8 @@ function render(): void {
 
   if (activeTab === "shortcuts") {
     shell.appendChild(renderShortcutsPanel());
+  } else if (activeTab === "memory") {
+    shell.appendChild(renderMemoryPanel());
   } else if (activeTab === "import") {
     shell.appendChild(renderImportPanel());
   } else {
@@ -694,6 +714,199 @@ function renderQuickShortcutsPanel(): HTMLElement {
   return card;
 }
 
+function getPolicy(): MemoryPolicy {
+  return (
+    currentSettings.memory_policy ?? {
+      sleep_timeout_secs: 600,
+      max_live_tabs: null,
+      never_sleep_pinned: true,
+      never_sleep_domains: ["meet.google.com", "discord.com", "web.whatsapp.com"],
+    }
+  );
+}
+
+function saveMemoryPolicy(next: MemoryPolicy): void {
+  void callBridge<CoreSettings>("memory.setPolicy", { policy: next }).then((updated) => {
+    if (updated) {
+      currentSettings = updated;
+      statusMessage = {
+        text: l("Política de memória salva.", "Memory policy saved."),
+        isError: false,
+      };
+    }
+    render();
+  });
+}
+
+function renderMemoryPanel(): HTMLElement {
+  const policy = getPolicy();
+  const card = document.createElement("section");
+  card.className = "panel-card";
+
+  const head = document.createElement("div");
+  head.className = "panel-head";
+  head.innerHTML = `<h2><i class="fa-solid fa-microchip" aria-hidden="true"></i><span>${l("Gerenciador de Memória e Tab Sleeping", "Memory Manager & Tab Sleeping")}</span></h2>`;
+
+  const sleepBtn = document.createElement("button");
+  sleepBtn.type = "button";
+  sleepBtn.className = "btn btn-primary";
+  sleepBtn.innerHTML = `<i class="fa-solid fa-moon" aria-hidden="true"></i><span>${l("Dormir abas inativas agora", "Sleep inactive tabs now")}</span>`;
+  sleepBtn.addEventListener("click", () => {
+    void callBridge<{ count: number }>("memory.sleepInactive").then((res) => {
+      const n = res?.count ?? 0;
+      statusMessage = {
+        text: l(
+          `${n} aba(s) elegível(is) colocada(s) para dormir. Medindo delta real de RAM...`,
+          `${n} eligible tab(s) put to sleep. Measuring real OS RAM delta...`,
+        ),
+        isError: false,
+      };
+      render();
+    });
+  });
+  head.appendChild(sleepBtn);
+  card.appendChild(head);
+
+  const summary = document.createElement("p");
+  summary.className = "muted";
+  summary.textContent = l(
+    `Uso real atual (todos processos): ${currentMemory.total_private_mb} MB Private / ${currentMemory.total_working_set_mb} MB Working Set (${currentMemory.process_count} processos) — ${currentMemory.live_tabs_count} vivas, ${currentMemory.sleeping_tabs_count} dormindo, ${currentMemory.saved_mb} MB devolvidos ao PC.`,
+    `Current real usage (all processes): ${currentMemory.total_private_mb} MB Private / ${currentMemory.total_working_set_mb} MB Working Set (${currentMemory.process_count} processes) — ${currentMemory.live_tabs_count} live, ${currentMemory.sleeping_tabs_count} sleeping, ${currentMemory.saved_mb} MB returned to PC.`,
+  );
+  card.appendChild(summary);
+
+  const timeoutRow = document.createElement("div");
+  timeoutRow.className = "shortcut-row";
+  timeoutRow.innerHTML = `<span class="shortcut-name">${l("Dormir abas em segundo plano após", "Sleep background tabs after")}</span>`;
+  const timeoutSel = document.createElement("select");
+  timeoutSel.className = "text-input";
+  timeoutSel.style.maxWidth = "200px";
+  for (const [secs, label] of [
+    [0, l("Desligado (manual)", "Off (manual only)")],
+    [60, l("1 minuto", "1 minute")],
+    [300, l("5 minutos", "5 minutes")],
+    [600, l("10 minutos (padrão)", "10 minutes (default)")],
+    [900, l("15 minutos", "15 minutes")],
+    [1800, l("30 minutos", "30 minutes")],
+    [3600, l("60 minutos", "60 minutes")],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = String(secs);
+    opt.textContent = label;
+    if (policy.sleep_timeout_secs === secs) opt.selected = true;
+    timeoutSel.appendChild(opt);
+  }
+  timeoutSel.addEventListener("change", () => {
+    saveMemoryPolicy({ ...policy, sleep_timeout_secs: Number(timeoutSel.value) });
+  });
+  timeoutRow.appendChild(timeoutSel);
+  card.appendChild(timeoutRow);
+
+  const capRow = document.createElement("div");
+  capRow.className = "shortcut-row";
+  capRow.innerHTML = `<span class="shortcut-name">${l("Limite máximo de abas vivas (dorme a mais antiga)", "Max live tabs cap (sleeps LRU)")}</span>`;
+  const capSel = document.createElement("select");
+  capSel.className = "text-input";
+  capSel.style.maxWidth = "200px";
+  for (const [val, label] of [
+    ["", l("Sem limite", "Unlimited")],
+    ["3", "3"],
+    ["5", "5"],
+    ["8", "8"],
+    ["12", "12"],
+    ["20", "20"],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = label;
+    if ((policy.max_live_tabs === null && val === "") || String(policy.max_live_tabs) === val) {
+      opt.selected = true;
+    }
+    capSel.appendChild(opt);
+  }
+  capSel.addEventListener("change", () => {
+    saveMemoryPolicy({
+      ...policy,
+      max_live_tabs: capSel.value ? Number(capSel.value) : null,
+    });
+  });
+  capRow.appendChild(capSel);
+  card.appendChild(capRow);
+
+  const checks = document.createElement("div");
+  checks.className = "checks-row";
+  checks.appendChild(
+    makeCheckbox(
+      l("Nunca dormir abas fixadas", "Never sleep pinned tabs"),
+      policy.never_sleep_pinned,
+      (v) => saveMemoryPolicy({ ...policy, never_sleep_pinned: v }),
+    ),
+  );
+  card.appendChild(checks);
+
+  const domTitle = document.createElement("div");
+  domTitle.className = "shortcut-group-title";
+  domTitle.textContent = l(
+    "Domínios que nunca dormem (ex: meet.google.com, discord.com)",
+    "Never-sleep domains (e.g. meet.google.com, discord.com)",
+  );
+  card.appendChild(domTitle);
+
+  const form = document.createElement("form");
+  form.className = "form-inline";
+  const domInput = document.createElement("input");
+  domInput.className = "text-input";
+  domInput.placeholder = "ex: web.whatsapp.com";
+  const addBtn = document.createElement("button");
+  addBtn.type = "submit";
+  addBtn.className = "btn btn-primary";
+  addBtn.innerHTML = `<i class="fa-solid fa-plus" aria-hidden="true"></i><span>${l("Adicionar domínio", "Add domain")}</span>`;
+  form.appendChild(domInput);
+  form.appendChild(addBtn);
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const cleaned = domInput.value
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .split("/")[0];
+    if (!cleaned) return;
+    if (!policy.never_sleep_domains.includes(cleaned)) {
+      saveMemoryPolicy({
+        ...policy,
+        never_sleep_domains: [...policy.never_sleep_domains, cleaned],
+      });
+    }
+  });
+  card.appendChild(form);
+
+  const domList = document.createElement("div");
+  domList.className = "shortcut-list";
+  for (const dom of policy.never_sleep_domains) {
+    const row = document.createElement("div");
+    row.className = "shortcut-row";
+    const span = document.createElement("span");
+    span.className = "shortcut-name";
+    span.textContent = dom;
+    row.appendChild(span);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn btn-danger";
+    del.innerHTML = `<i class="fa-solid fa-trash" aria-hidden="true"></i>`;
+    del.addEventListener("click", () => {
+      saveMemoryPolicy({
+        ...policy,
+        never_sleep_domains: policy.never_sleep_domains.filter((d) => d !== dom),
+      });
+    });
+    row.appendChild(del);
+    domList.appendChild(row);
+  }
+  card.appendChild(domList);
+
+  return card;
+}
+
 function makeCheckbox(
   label: string,
   checked: boolean,
@@ -725,13 +938,17 @@ onBridgeEvent((event) => {
     render();
   } else if (event.type === "theme") {
     applyThemeTokens(event.theme);
+  } else if (event.type === "memory") {
+    currentMemory = event.stats;
+    if (activeTab === "memory") render();
   }
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme] = await Promise.all([
+  const [settings, theme, mem] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
+    callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
   ]);
   if (settings) {
     currentSettings = settings;
@@ -739,6 +956,9 @@ async function bootstrap(): Promise<void> {
   }
   if (theme) {
     applyThemeTokens(theme);
+  }
+  if (mem) {
+    currentMemory = mem;
   }
   await refreshProfilesAndData();
 }

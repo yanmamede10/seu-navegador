@@ -20,6 +20,7 @@
   "menu.newIncognito": "New incognito window",
   "menu.newGroup": "New group from active tab",
   "menu.reopenClosed": "Reopen closed tab",
+  "menu.sleepInactive": "Sleep inactive tabs now",
   "menu.settings": "Settings, shortcuts & import",
   "menu.language": "Language",
   "menu.searchEngine": "Search engine",

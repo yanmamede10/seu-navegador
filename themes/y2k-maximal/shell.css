@@ -441,6 +441,13 @@ body {
   font-size: 19px;
   color: #4FD8FF;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.y2k-ram-pill:hover {
+  background: #141E5C;
+  border-color: #B6FF3B;
+  color: #B6FF3B;
 }
 
 .y2k-ram-pill i {

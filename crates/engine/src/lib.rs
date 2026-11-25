@@ -4,6 +4,7 @@
 //! GeckoView on Android) can plug in without leaking engine internals into `core`.
 
 pub mod assets;
+pub mod metrics;
 
 #[cfg(target_os = "windows")]
 pub mod cef_backend;

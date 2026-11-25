@@ -18,6 +18,8 @@ export interface TabInfo {
   audible: boolean;
   state: "active" | "background" | "sleeping";
   group_id: number | null;
+  has_thumbnail?: boolean;
+  sleep_protected_reason?: string | null;
 }
 
 export interface WindowSnapshot {
@@ -35,6 +37,23 @@ export interface QuickShortcut {
   url: string;
 }
 
+export interface MemoryPolicy {
+  sleep_timeout_secs: number;
+  max_live_tabs: number | null;
+  never_sleep_pinned: boolean;
+  never_sleep_domains: string[];
+}
+
+export interface MemoryStats {
+  total_private_mb: number;
+  total_working_set_mb: number;
+  process_count: number;
+  live_tabs_count: number;
+  sleeping_tabs_count: number;
+  saved_mb: number;
+  shared_renderer_detected: boolean;
+}
+
 export interface CoreSettings {
   locale: "pt-br" | "en";
   search_engine: "duck-duck-go" | "google" | "brave" | "startpage";
@@ -42,6 +61,7 @@ export interface CoreSettings {
   game_mode_enabled: boolean;
   shortcuts?: Record<string, string>;
   quick_shortcuts?: QuickShortcut[];
+  memory_policy?: MemoryPolicy;
 }
 
 export interface DetectedBrowserProfile {
@@ -110,6 +130,7 @@ export type BridgeEvent =
   | { type: "state"; snapshot: WindowSnapshot }
   | { type: "settings"; settings: CoreSettings }
   | { type: "theme"; theme: LoadedTheme }
+  | { type: "memory"; stats: MemoryStats }
   | { type: "overlay"; panel: string }
   | { type: "focusOmnibox" }
   | { type: "toggleMenu" };

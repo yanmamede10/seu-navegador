@@ -250,6 +250,11 @@ impl NativeWindowHost for Win32WindowHost {
                         warn!("Failed to persist quick_shortcuts setting: {err}");
                     }
                 }
+                if let Ok(json) = serde_json::to_string(&settings.memory_policy) {
+                    if let Err(err) = db.set_setting("memory_policy", &json) {
+                        warn!("Failed to persist memory_policy setting: {err}");
+                    }
+                }
             }
         }
     }
@@ -296,6 +301,11 @@ pub fn load_persisted_settings(storage: &Option<Storage>) -> CoreSettings {
             if !parsed.is_empty() {
                 settings.quick_shortcuts = parsed;
             }
+        }
+    }
+    if let Ok(Some(raw_mem)) = db.get_setting("memory_policy") {
+        if let Ok(parsed) = serde_json::from_str::<seu_core::memory::MemoryPolicy>(&raw_mem) {
+            settings.memory_policy = parsed;
         }
     }
 

@@ -1,5 +1,6 @@
 //! Embedded UI and theme assets served via the privileged `seu://` internal scheme.
 
+use crate::metrics::read_tab_thumbnail_bytes;
 use include_dir::{include_dir, Dir};
 use seu_themes::ThemeRegistry;
 
@@ -46,6 +47,18 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
                     bytes: bytes.to_vec(),
                 };
             }
+        }
+        return not_found();
+    }
+
+    if host == "thumb" {
+        if let Some(bytes) = read_tab_thumbnail_bytes(raw_path) {
+            return ResolvedAsset {
+                status_code: 200,
+                status_text: "OK",
+                mime_type: "image/jpeg",
+                bytes,
+            };
         }
         return not_found();
     }

@@ -5,6 +5,7 @@ import {
   onBridgeEvent,
   type CoreSettings,
   type LoadedTheme,
+  type MemoryStats,
   type ThemeSummary,
   type WindowSnapshot,
 } from "./bridge";
@@ -37,6 +38,15 @@ let alertDismissed = false;
 let currentTheme: LoadedTheme | null = null;
 let themeList: ThemeSummary[] = [];
 let currentSnapshot: WindowSnapshot | null = null;
+let currentMemory: MemoryStats = {
+  total_private_mb: 0,
+  total_working_set_mb: 0,
+  process_count: 0,
+  live_tabs_count: 1,
+  sleeping_tabs_count: 0,
+  saved_mb: 0,
+  shared_renderer_detected: false,
+};
 let currentSettings: CoreSettings = {
   locale: "pt-br",
   search_engine: "duck-duck-go",
@@ -144,8 +154,18 @@ function renderAll(): void {
   if (!currentTheme) return;
 
   const tabs = currentSnapshot?.tabs ?? [];
-  const sleepingCount = tabs.filter((tab) => tab.state === "sleeping").length;
-  const liveTabsCount = Math.max(1, tabs.length - sleepingCount);
+  const sleepingCount = Math.max(
+    currentMemory.sleeping_tabs_count,
+    tabs.filter((tab) => tab.state === "sleeping").length,
+  );
+  const liveTabsCount = Math.max(
+    1,
+    currentMemory.live_tabs_count || tabs.length - sleepingCount,
+  );
+  const savedLabel =
+    currentSettings.locale === "en"
+      ? `${currentMemory.saved_mb} MB returned`
+      : `${currentMemory.saved_mb} MB devolvidos`;
 
   const categoryItems: RepeatItem[] = (
     [
@@ -188,7 +208,7 @@ function renderAll(): void {
       },
       memory: {
         sleepingCount,
-        savedText: "0 MB",
+        savedText: savedLabel,
       },
       media: {
         source: "—",
@@ -240,18 +260,22 @@ onBridgeEvent((event) => {
     renderAll();
   } else if (event.type === "theme") {
     mountTheme(event.theme);
+  } else if (event.type === "memory") {
+    currentMemory = event.stats;
+    renderAll();
   }
 });
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, themes, snap] = await Promise.all([
+    const [settings, theme, themes, snap, mem] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<ThemeSummary[]>("themes.list").catch(() => []),
       callBridge<WindowSnapshot>("windows.getSnapshot", {
         window_id: windowId,
       }).catch(() => undefined),
+      callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
     ]);
 
     if (settings) {
@@ -266,6 +290,9 @@ async function bootstrap(): Promise<void> {
     }
     if (snap) {
       currentSnapshot = snap;
+    }
+    if (mem) {
+      currentMemory = mem;
     }
     if (theme) {
       mountTheme(theme);

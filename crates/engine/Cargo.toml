@@ -16,6 +16,7 @@ tracing.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 cef.workspace = true
+jpeg-encoder.workspace = true
 windows-sys.workspace = true
 
 [lints]

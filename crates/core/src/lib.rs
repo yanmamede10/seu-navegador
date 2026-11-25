@@ -4,14 +4,20 @@
 //! By architectural contract (SPEC §12.1), this crate MUST NOT depend on CEF
 //! or Win32 so it can be shared with Android via UniFFI in the future.
 
+pub mod memory;
 pub mod shortcuts;
 
+use memory::{
+    evaluate_sleep_eligibility, select_tabs_to_sleep, MemoryPolicy, MemoryStats, SleepBlockReason,
+    TabMemoryMeta,
+};
 use serde::{Deserialize, Serialize};
 use shortcuts::{
     default_chrome_shortcuts, default_quick_shortcuts, merge_with_defaults, KeyCombo,
     QuickShortcut, ShortcutAction,
 };
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const NEWTAB_URL: &str = "seu://newtab/";
@@ -142,6 +148,10 @@ pub struct TabInfo {
     pub audible: bool,
     pub state: TabLifecycleState,
     pub group_id: Option<GroupId>,
+    #[serde(default)]
+    pub has_thumbnail: bool,
+    #[serde(default)]
+    pub sleep_protected_reason: Option<SleepBlockReason>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +181,8 @@ pub struct CoreSettings {
     pub shortcuts: BTreeMap<String, String>,
     #[serde(default = "default_quick_shortcuts")]
     pub quick_shortcuts: Vec<QuickShortcut>,
+    #[serde(default)]
+    pub memory_policy: MemoryPolicy,
 }
 
 impl Default for CoreSettings {
@@ -182,6 +194,7 @@ impl Default for CoreSettings {
             game_mode_enabled: false,
             shortcuts: default_chrome_shortcuts(),
             quick_shortcuts: default_quick_shortcuts(),
+            memory_policy: MemoryPolicy::default(),
         }
     }
 }
@@ -206,6 +219,8 @@ pub struct BrowserCore {
     windows: HashMap<WindowId, WindowEntry>,
     window_order: Vec<WindowId>,
     tabs: HashMap<TabId, TabInfo>,
+    tab_meta: HashMap<TabId, TabMemoryMeta>,
+    pub memory_stats: MemoryStats,
     pub settings: CoreSettings,
 }
 
@@ -248,7 +263,9 @@ impl BrowserCore {
         self.window_order.retain(|&id| id != window_id);
         for tab_id in &entry.tab_ids {
             self.tabs.remove(tab_id);
+            self.tab_meta.remove(tab_id);
         }
+        self.recompute_tab_counts();
         Ok(entry.tab_ids)
     }
 
@@ -264,7 +281,15 @@ impl BrowserCore {
         let tabs = win
             .tab_ids
             .iter()
-            .filter_map(|id| self.tabs.get(id).cloned())
+            .filter_map(|id| {
+                let mut tab = self.tabs.get(id)?.clone();
+                if let Some(meta) = self.tab_meta.get(id) {
+                    tab.has_thumbnail = meta.has_thumbnail;
+                    tab.sleep_protected_reason =
+                        evaluate_sleep_eligibility(&tab, meta, &self.settings.memory_policy).err();
+                }
+                Some(tab)
+            })
             .collect();
         Ok(WindowSnapshot {
             id: win.id,
@@ -307,8 +332,8 @@ impl BrowserCore {
         let tab = TabInfo {
             id: tab_id,
             window_id,
-            url: resolved_url,
-            title,
+            url: resolved_url.clone(),
+            title: title.clone(),
             favicon: None,
             loading: false,
             can_go_back: false,
@@ -317,8 +342,17 @@ impl BrowserCore {
             audible: false,
             state: TabLifecycleState::Background,
             group_id: None,
+            has_thumbnail: false,
+            sleep_protected_reason: None,
         };
         self.tabs.insert(tab_id, tab);
+
+        let mut meta = TabMemoryMeta {
+            last_active_ms: unix_now_ms(),
+            ..Default::default()
+        };
+        meta.record_navigation(resolved_url, title);
+        self.tab_meta.insert(tab_id, meta);
 
         if let Some(win) = self.windows.get_mut(&window_id) {
             win.tab_ids.push(tab_id);
@@ -334,10 +368,12 @@ impl BrowserCore {
             self.activate_tab(window_id, tab_id)?;
         }
 
+        self.recompute_tab_counts();
         Ok(tab_id)
     }
 
     pub fn activate_tab(&mut self, window_id: WindowId, tab_id: TabId) -> Result<(), CoreError> {
+        let now = unix_now_ms();
         let win = self
             .windows
             .get_mut(&window_id)
@@ -357,12 +393,20 @@ impl BrowserCore {
                         prev_tab.state = TabLifecycleState::Background;
                     }
                 }
+                if let Some(prev_meta) = self.tab_meta.get_mut(&prev_id) {
+                    prev_meta.last_active_ms = now;
+                }
             }
         }
 
         if let Some(tab) = self.tabs.get_mut(&tab_id) {
             tab.state = TabLifecycleState::Active;
         }
+        if let Some(meta) = self.tab_meta.get_mut(&tab_id) {
+            meta.last_active_ms = now;
+            meta.slept_at_ms = None;
+        }
+        self.recompute_tab_counts();
         Ok(())
     }
 
@@ -371,6 +415,7 @@ impl BrowserCore {
             .tabs
             .remove(&tab_id)
             .ok_or(CoreError::TabNotFound(tab_id))?;
+        self.tab_meta.remove(&tab_id);
         let window_id = tab.window_id;
         let win = self
             .windows
@@ -413,6 +458,7 @@ impl BrowserCore {
             win.active_tab_id
         };
 
+        self.recompute_tab_counts();
         Ok((window_id, next_active))
     }
 
@@ -574,24 +620,199 @@ impl BrowserCore {
             .tabs
             .get_mut(&tab_id)
             .ok_or(CoreError::TabNotFound(tab_id))?;
+        let meta = self.tab_meta.entry(tab_id).or_default();
+
         if let Some(u) = url {
-            tab.url = u;
+            if u != tab.url {
+                // Reset per-document dirty/scroll flags on new URL load.
+                meta.dirty_form = false;
+                meta.has_beforeunload = false;
+                meta.scroll_x = 0;
+                meta.scroll_y = 0;
+            }
+            tab.url = u.clone();
+            meta.record_navigation(u, tab.title.clone());
         }
         if let Some(t) = title {
             if !t.is_empty() {
-                tab.title = t;
+                tab.title = t.clone();
+                meta.update_current_title(&t);
             }
         }
         if let Some(l) = loading {
             tab.loading = l;
         }
         if let Some(b) = can_go_back {
-            tab.can_go_back = b;
+            tab.can_go_back = b || meta.can_go_back();
         }
         if let Some(f) = can_go_forward {
-            tab.can_go_forward = f;
+            tab.can_go_forward = f || meta.can_go_forward();
         }
         Ok(tab.window_id)
+    }
+
+    pub fn tab_memory_meta(&self, tab_id: TabId) -> Option<&TabMemoryMeta> {
+        self.tab_meta.get(&tab_id)
+    }
+
+    pub fn update_tab_probe(
+        &mut self,
+        tab_id: TabId,
+        dirty_form: Option<bool>,
+        has_beforeunload: Option<bool>,
+        scroll_x: Option<i32>,
+        scroll_y: Option<i32>,
+        audible: Option<bool>,
+    ) -> Option<WindowId> {
+        let tab = self.tabs.get_mut(&tab_id)?;
+        let meta = self.tab_meta.entry(tab_id).or_default();
+        if let Some(d) = dirty_form {
+            meta.dirty_form = d;
+        }
+        if let Some(b) = has_beforeunload {
+            meta.has_beforeunload = b;
+        }
+        if let Some(x) = scroll_x {
+            meta.scroll_x = x;
+        }
+        if let Some(y) = scroll_y {
+            meta.scroll_y = y;
+        }
+        let mut audible_changed = false;
+        if let Some(a) = audible {
+            if tab.audible != a {
+                tab.audible = a;
+                audible_changed = true;
+            }
+        }
+        if audible_changed {
+            Some(tab.window_id)
+        } else {
+            None
+        }
+    }
+
+    pub fn set_tab_media_capture(&mut self, tab_id: TabId, active: bool) {
+        if let Some(meta) = self.tab_meta.get_mut(&tab_id) {
+            meta.media_capture_active = active;
+        }
+    }
+
+    pub fn set_tab_thumbnail_ready(&mut self, tab_id: TabId, ready: bool) {
+        if let Some(meta) = self.tab_meta.get_mut(&tab_id) {
+            meta.has_thumbnail = ready;
+        }
+        if let Some(tab) = self.tabs.get_mut(&tab_id) {
+            tab.has_thumbnail = ready;
+        }
+    }
+
+    /// Marks an eligible background tab as `Sleeping`. Returns its `WindowId` on success.
+    pub fn mark_tab_sleeping(&mut self, tab_id: TabId, force: bool) -> Result<WindowId, CoreError> {
+        let tab = self
+            .tabs
+            .get(&tab_id)
+            .ok_or(CoreError::TabNotFound(tab_id))?;
+        let meta = self.tab_meta.get(&tab_id).cloned().unwrap_or_default();
+
+        if !force {
+            if evaluate_sleep_eligibility(tab, &meta, &self.settings.memory_policy).is_err() {
+                return Err(CoreError::InvalidIndex(0));
+            }
+        } else if tab.state != TabLifecycleState::Background {
+            return Err(CoreError::InvalidIndex(0));
+        }
+
+        let window_id = tab.window_id;
+        if let Some(t) = self.tabs.get_mut(&tab_id) {
+            t.state = TabLifecycleState::Sleeping;
+            t.loading = false;
+            t.audible = false;
+            t.can_go_back = meta.can_go_back();
+            t.can_go_forward = meta.can_go_forward();
+        }
+        if let Some(m) = self.tab_meta.get_mut(&tab_id) {
+            m.slept_at_ms = Some(unix_now_ms());
+        }
+        self.recompute_tab_counts();
+        Ok(window_id)
+    }
+
+    /// Selects background tabs eligible to sleep right now under the active `MemoryPolicy`.
+    pub fn select_due_sleep_tabs(&self, now_ms: u64, force_all_eligible: bool) -> Vec<TabId> {
+        let default_meta = TabMemoryMeta::default();
+        let pairs: Vec<(&TabInfo, &TabMemoryMeta)> = self
+            .tabs
+            .values()
+            .map(|t| (t, self.tab_meta.get(&t.id).unwrap_or(&default_meta)))
+            .collect();
+        select_tabs_to_sleep(
+            &pairs,
+            &self.settings.memory_policy,
+            now_ms,
+            force_all_eligible,
+        )
+    }
+
+    pub fn record_sleep_ram_delta(&mut self, tab_id: TabId, delta_mb: u32, shared_renderer: bool) {
+        if let Some(m) = self.tab_meta.get_mut(&tab_id) {
+            m.saved_mb = delta_mb;
+        }
+        self.memory_stats.saved_mb = self.memory_stats.saved_mb.saturating_add(delta_mb);
+        self.memory_stats.shared_renderer_detected = shared_renderer;
+    }
+
+    pub fn update_os_memory_metrics(
+        &mut self,
+        total_private_mb: u32,
+        total_working_set_mb: u32,
+        process_count: usize,
+    ) {
+        self.memory_stats.total_private_mb = total_private_mb;
+        self.memory_stats.total_working_set_mb = total_working_set_mb;
+        self.memory_stats.process_count = process_count;
+        self.recompute_tab_counts();
+    }
+
+    pub fn step_tab_history_back(&mut self, tab_id: TabId) -> Option<(WindowId, String)> {
+        let wid = self.tabs.get(&tab_id)?.window_id;
+        let meta = self.tab_meta.get_mut(&tab_id)?;
+        let entry = meta.step_back()?.clone();
+        let can_back = meta.can_go_back();
+        let can_fwd = meta.can_go_forward();
+        if let Some(tab) = self.tabs.get_mut(&tab_id) {
+            tab.url = entry.url.clone();
+            tab.title = entry.title;
+            tab.can_go_back = can_back;
+            tab.can_go_forward = can_fwd;
+        }
+        Some((wid, entry.url))
+    }
+
+    pub fn step_tab_history_forward(&mut self, tab_id: TabId) -> Option<(WindowId, String)> {
+        let wid = self.tabs.get(&tab_id)?.window_id;
+        let meta = self.tab_meta.get_mut(&tab_id)?;
+        let entry = meta.step_forward()?.clone();
+        let can_back = meta.can_go_back();
+        let can_fwd = meta.can_go_forward();
+        if let Some(tab) = self.tabs.get_mut(&tab_id) {
+            tab.url = entry.url.clone();
+            tab.title = entry.title;
+            tab.can_go_back = can_back;
+            tab.can_go_forward = can_fwd;
+        }
+        Some((wid, entry.url))
+    }
+
+    fn recompute_tab_counts(&mut self) {
+        let sleeping = self
+            .tabs
+            .values()
+            .filter(|t| t.state == TabLifecycleState::Sleeping)
+            .count();
+        let live = self.tabs.len().saturating_sub(sleeping);
+        self.memory_stats.sleeping_tabs_count = sleeping;
+        self.memory_stats.live_tabs_count = live;
     }
 
     pub fn navigate_tab(&mut self, tab_id: TabId, raw_input: &str) -> Result<String, CoreError> {
@@ -811,6 +1032,13 @@ impl BrowserCore {
         self.activate_tab(window_id, next_id)?;
         Ok(Some(next_id))
     }
+}
+
+fn unix_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Resolves raw user input from the omnibox into a navigable URL or search query URL.

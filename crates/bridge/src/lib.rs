@@ -5,8 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 use seu_core::{
-    shortcuts::QuickShortcut, BrowserCore, CoreError, CoreSettings, GroupId, Locale,
-    SearchCategory, SearchEngine, TabId, WindowId, WindowSnapshot,
+    memory::{MemoryPolicy, MemoryStats},
+    shortcuts::QuickShortcut,
+    BrowserCore, CoreError, CoreSettings, GroupId, Locale, SearchCategory, SearchEngine, TabId,
+    TabLifecycleState, WindowId, WindowSnapshot,
 };
 use seu_storage::{
     importer::{
@@ -167,6 +169,15 @@ pub enum BridgeRequest {
     ImportRun(ImportOptions),
     #[serde(rename = "data.summary")]
     DataSummary,
+
+    #[serde(rename = "memory.getStats")]
+    MemoryGetStats,
+    #[serde(rename = "memory.sleepTab")]
+    MemorySleepTab { tab_id: TabId },
+    #[serde(rename = "memory.sleepInactive")]
+    MemorySleepInactive,
+    #[serde(rename = "memory.setPolicy")]
+    MemorySetPolicy { policy: MemoryPolicy },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -205,6 +216,10 @@ pub enum BridgeResponse {
     DataSummary {
         bookmarks: Vec<BookmarkItem>,
         history: Vec<HistoryItem>,
+    },
+    MemoryStats(MemoryStats),
+    TabsSlept {
+        count: usize,
     },
 }
 
@@ -247,6 +262,17 @@ pub enum HostEffect {
         window_id: WindowId,
         tab_id: TabId,
     },
+    SleepTabView {
+        window_id: WindowId,
+        tab_id: TabId,
+    },
+    WakeTabView {
+        window_id: WindowId,
+        tab_id: TabId,
+        url: String,
+        scroll_x: i32,
+        scroll_y: i32,
+    },
     NavigateTabView {
         tab_id: TabId,
         url: String,
@@ -287,6 +313,7 @@ pub enum HostEffect {
     },
     BroadcastSettings,
     BroadcastTheme,
+    BroadcastMemory,
 }
 
 pub struct DispatchOutput {
@@ -417,13 +444,40 @@ pub fn dispatch_request(
             })
         }
         BridgeRequest::TabActivate { window_id, tab_id } => {
+            let was_sleeping = core
+                .get_tab(tab_id)
+                .map(|t| t.state == TabLifecycleState::Sleeping)
+                .unwrap_or(false);
+            let wake_info = if was_sleeping {
+                let url = core
+                    .get_tab(tab_id)
+                    .map(|t| t.url.clone())
+                    .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+                let (sx, sy) = core
+                    .tab_memory_meta(tab_id)
+                    .map(|m| (m.scroll_x, m.scroll_y))
+                    .unwrap_or((0, 0));
+                Some((url, sx, sy))
+            } else {
+                None
+            };
             core.activate_tab(window_id, tab_id)?;
+            let mut effects = Vec::new();
+            if let Some((url, scroll_x, scroll_y)) = wake_info {
+                effects.push(HostEffect::WakeTabView {
+                    window_id,
+                    tab_id,
+                    url,
+                    scroll_x,
+                    scroll_y,
+                });
+            }
+            effects.push(HostEffect::ActivateTabView { window_id, tab_id });
+            effects.push(HostEffect::BroadcastState { window_id });
+            effects.push(HostEffect::BroadcastMemory);
             Ok(DispatchOutput {
                 response: BridgeResponse::Ok,
-                effects: vec![
-                    HostEffect::ActivateTabView { window_id, tab_id },
-                    HostEffect::BroadcastState { window_id },
-                ],
+                effects,
             })
         }
         BridgeRequest::TabNavigate { tab_id, input } => {
@@ -823,6 +877,67 @@ pub fn dispatch_request(
             Ok(DispatchOutput {
                 response: BridgeResponse::DataSummary { bookmarks, history },
                 effects: Vec::new(),
+            })
+        }
+        BridgeRequest::MemoryGetStats => Ok(DispatchOutput {
+            response: BridgeResponse::MemoryStats(core.memory_stats.clone()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::MemorySleepTab { tab_id } => {
+            let window_id = core.mark_tab_sleeping(tab_id, true)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::TabsSlept { count: 1 },
+                effects: vec![
+                    HostEffect::SleepTabView { window_id, tab_id },
+                    HostEffect::BroadcastState { window_id },
+                    HostEffect::BroadcastMemory,
+                ],
+            })
+        }
+        BridgeRequest::MemorySleepInactive => {
+            let candidates = core.select_due_sleep_tabs(u64::MAX, true);
+            let mut effects = Vec::new();
+            let mut touched_windows = Vec::new();
+            let mut slept = 0usize;
+            for tid in candidates {
+                if let Ok(wid) = core.mark_tab_sleeping(tid, false) {
+                    slept += 1;
+                    effects.push(HostEffect::SleepTabView {
+                        window_id: wid,
+                        tab_id: tid,
+                    });
+                    if !touched_windows.contains(&wid) {
+                        touched_windows.push(wid);
+                    }
+                }
+            }
+            for wid in touched_windows {
+                effects.push(HostEffect::BroadcastState { window_id: wid });
+            }
+            if slept > 0 {
+                effects.push(HostEffect::BroadcastMemory);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::TabsSlept { count: slept },
+                effects,
+            })
+        }
+        BridgeRequest::MemorySetPolicy { mut policy } => {
+            policy.sleep_timeout_secs = policy.sleep_timeout_secs.min(24 * 3600);
+            if let Some(cap) = policy.max_live_tabs {
+                policy.max_live_tabs = Some(cap.clamp(1, 200));
+            }
+            policy.never_sleep_domains = policy
+                .never_sleep_domains
+                .into_iter()
+                .map(|d| d.trim().to_ascii_lowercase())
+                .filter(|d| !d.is_empty())
+                .take(100)
+                .collect();
+            core.settings.memory_policy = policy;
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings],
             })
         }
     }

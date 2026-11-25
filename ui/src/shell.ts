@@ -5,6 +5,7 @@ import {
   onBridgeEvent,
   type CoreSettings,
   type LoadedTheme,
+  type MemoryStats,
   type WindowSnapshot,
 } from "./bridge";
 import { DeclarativeRuntime, type RepeatItem } from "./declarative";
@@ -15,7 +16,16 @@ const mountEl = document.getElementById("theme-mount") as HTMLDivElement;
 
 let currentSnapshot: WindowSnapshot | null = null;
 let currentTheme: LoadedTheme | null = null;
-let overlayOpen = false;
+let currentMemory: MemoryStats = {
+  total_private_mb: 0,
+  total_working_set_mb: 0,
+  process_count: 0,
+  live_tabs_count: 1,
+  sleeping_tabs_count: 0,
+  saved_mb: 0,
+  shared_renderer_detected: false,
+};
+let activeOverlayPanel: "menu" | "memory" | null = null;
 
 const runtime = new DeclarativeRuntime(mountEl, {
   onStartDragWindow: () => {
@@ -98,28 +108,31 @@ const runtime = new DeclarativeRuntime(mountEl, {
         }
         break;
       case "overlay.toggleMenu":
-        toggleMenuOverlay();
+        toggleOverlayPanel("menu");
+        break;
+      case "overlay.toggleMemory":
+        toggleOverlayPanel("memory");
         break;
     }
   },
 });
 
-function toggleMenuOverlay(): void {
-  if (overlayOpen) {
-    overlayOpen = false;
+function toggleOverlayPanel(panel: "menu" | "memory"): void {
+  if (activeOverlayPanel === panel) {
+    activeOverlayPanel = null;
     void callBridge("overlay.close", { window_id: windowId });
     return;
   }
   const dpr = window.devicePixelRatio || 1;
   const rect = mountEl.getBoundingClientRect();
-  const widthCss = 286;
-  const heightCss = 385;
+  const widthCss = panel === "memory" ? 350 : 286;
+  const heightCss = panel === "memory" ? 440 : 410;
   const xCss = Math.max(8, window.innerWidth - widthCss - 10);
   const yCss = rect.height + 4;
-  overlayOpen = true;
+  activeOverlayPanel = panel;
   void callBridge("overlay.open", {
     window_id: windowId,
-    panel: "menu",
+    panel,
     x: Math.round(xCss * dpr),
     y: Math.round(yCss * dpr),
     width: Math.round(widthCss * dpr),
@@ -128,12 +141,15 @@ function toggleMenuOverlay(): void {
 }
 
 document.addEventListener("mousedown", (ev) => {
-  if (!overlayOpen) return;
+  if (!activeOverlayPanel) return;
   const target = ev.target as HTMLElement | null;
-  if (target?.closest('[data-seu-action="overlay.toggleMenu"]')) {
+  if (
+    target?.closest('[data-seu-action="overlay.toggleMenu"]') ||
+    target?.closest('[data-seu-action="overlay.toggleMemory"]')
+  ) {
     return;
   }
-  overlayOpen = false;
+  activeOverlayPanel = null;
   void callBridge("overlay.close", { window_id: windowId });
 });
 
@@ -215,7 +231,10 @@ function renderAll(): void {
         can_go_forward: activeTab?.can_go_forward ?? false,
       },
       memory: {
-        badgeText: "RAM -- MB",
+        badgeText:
+          currentMemory.total_private_mb > 0
+            ? `RAM ${currentMemory.total_private_mb} MB`
+            : "RAM -- MB",
       },
       blocker: {
         totalBlocked: 0,
@@ -255,10 +274,13 @@ onBridgeEvent((event) => {
     renderAll();
   } else if (event.type === "theme") {
     mountTheme(event.theme);
+  } else if (event.type === "memory") {
+    currentMemory = event.stats;
+    renderAll();
   } else if (event.type === "overlay" && event.panel === "closed") {
-    overlayOpen = false;
+    activeOverlayPanel = null;
   } else if (event.type === "toggleMenu") {
-    toggleMenuOverlay();
+    toggleOverlayPanel("menu");
   } else if (event.type === "focusOmnibox") {
     const input = mountEl.querySelector<HTMLInputElement>('[data-seu-input="omnibox"]');
     if (input) {
@@ -270,12 +292,13 @@ onBridgeEvent((event) => {
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, snap] = await Promise.all([
+    const [settings, theme, snap, mem] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<WindowSnapshot>("windows.getSnapshot", {
         window_id: windowId,
       }).catch(() => undefined),
+      callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
     ]);
 
     if (settings?.locale) {
@@ -283,6 +306,9 @@ async function bootstrap(): Promise<void> {
     }
     if (snap) {
       currentSnapshot = snap;
+    }
+    if (mem) {
+      currentMemory = mem;
     }
     if (theme) {
       mountTheme(theme);

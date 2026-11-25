@@ -1,6 +1,9 @@
 //! CEF Alloy backend implementation for Windows x64.
 
 use crate::assets::{resolve_seu_url, STRICT_SEU_CSP};
+use crate::metrics::{
+    capture_hwnd_thumbnail_jpeg, measure_browser_tree_memory, remove_tab_thumbnail,
+};
 use crate::{BrowserBackend, EngineConfig, EngineError, NativeWindowHandle, RectPx};
 use cef::{
     wrapper::{
@@ -18,13 +21,16 @@ use cef::{
 use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{
     shortcuts::{match_shortcut_vk, ShortcutAction},
-    BrowserCore, CoreSettings, TabId, WindowId, WindowSnapshot,
+    BrowserCore, CoreSettings, TabId, TabLifecycleState, WindowId, WindowSnapshot,
 };
 use seu_storage::Storage;
 use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -85,6 +91,9 @@ struct SharedState {
     windows: HashMap<WindowId, WindowViews>,
     tab_browsers: HashMap<TabId, Browser>,
     incognito_contexts: HashMap<WindowId, RequestContext>,
+    pending_scroll_restore: HashMap<TabId, (i32, i32)>,
+    probe_token: String,
+    monitor_running: Arc<AtomicBool>,
 }
 
 static ENGINE_STATE: OnceLock<Arc<Mutex<SharedState>>> = OnceLock::new();
@@ -130,6 +139,12 @@ impl CefEngine {
         let themes = ThemeRegistry::load_builtin()
             .map_err(|e| EngineError::InitFailed(format!("failed to load builtin themes: {e}")))?;
 
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(42);
+        let probe_token = format!("{nonce:x}");
+
         let shared = Arc::new(Mutex::new(SharedState {
             core,
             themes,
@@ -139,6 +154,9 @@ impl CefEngine {
             windows: HashMap::new(),
             tab_browsers: HashMap::new(),
             incognito_contexts: HashMap::new(),
+            pending_scroll_restore: HashMap::new(),
+            probe_token,
+            monitor_running: Arc::new(AtomicBool::new(false)),
         }));
 
         let _ = ENGINE_STATE.set(shared.clone());
@@ -307,6 +325,17 @@ impl BrowserBackend for CefEngine {
         if let Some(browser) = browser {
             if browser.can_go_back() != 0 {
                 browser.go_back();
+                return;
+            }
+            // Fallback to core's preserved Back/Forward history stack (e.g. after waking from sleep).
+            let fallback = self
+                .state
+                .lock()
+                .ok()
+                .and_then(|mut g| g.core.step_tab_history_back(tab_id));
+            if let Some((wid, url)) = fallback {
+                self.navigate_tab(tab_id, &url);
+                broadcast_window_state(&self.state, wid);
             }
         }
     }
@@ -320,16 +349,26 @@ impl BrowserBackend for CefEngine {
         if let Some(browser) = browser {
             if browser.can_go_forward() != 0 {
                 browser.go_forward();
+                return;
+            }
+            let fallback = self
+                .state
+                .lock()
+                .ok()
+                .and_then(|mut g| g.core.step_tab_history_forward(tab_id));
+            if let Some((wid, url)) = fallback {
+                self.navigate_tab(tab_id, &url);
+                broadcast_window_state(&self.state, wid);
             }
         }
     }
 
     fn close_tab_view(&self, tab_id: TabId) {
-        let browser = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|mut g| g.tab_browsers.remove(&tab_id));
+        let browser = self.state.lock().ok().and_then(|mut g| {
+            g.pending_scroll_restore.remove(&tab_id);
+            g.tab_browsers.remove(&tab_id)
+        });
+        remove_tab_thumbnail(tab_id);
         if let Some(b) = browser {
             if let Some(host) = b.host() {
                 host.close_browser(1);
@@ -635,6 +674,38 @@ fn broadcast_settings_all(state: &Arc<Mutex<SharedState>>) {
     }
 }
 
+fn broadcast_memory_all(state: &Arc<Mutex<SharedState>>) {
+    let (stats, chrome_views, tab_browsers) = {
+        let Ok(guard) = state.lock() else {
+            return;
+        };
+        let mut chrome = Vec::new();
+        for win in guard.windows.values() {
+            if let Some(s) = &win.shell {
+                chrome.push(s.clone());
+            }
+            if let Some(o) = &win.overlay {
+                chrome.push(o.clone());
+            }
+        }
+        let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+        (guard.core.memory_stats.clone(), chrome, tabs)
+    };
+
+    let payload = serde_json::json!({ "type": "memory", "stats": stats });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
 fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: i32, height: i32) {
     let engine = CefEngine {
         state: state.clone(),
@@ -823,6 +894,9 @@ fn handle_native_window_closed(state: &Arc<Mutex<SharedState>>, window_id: Windo
     }
 
     if should_quit {
+        if let Ok(guard) = state.lock() {
+            guard.monitor_running.store(false, Ordering::SeqCst);
+        }
         quit_message_loop();
     }
 }
@@ -905,6 +979,55 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
                 }
             }
             HostEffect::CloseTabView { tab_id, .. } => engine.close_tab_view(tab_id),
+            HostEffect::SleepTabView { tab_id, .. } => {
+                sleep_tab_browser(state, tab_id);
+            }
+            HostEffect::WakeTabView {
+                window_id,
+                tab_id,
+                url,
+                scroll_x,
+                scroll_y,
+            } => {
+                let (incognito, shell_h) = state
+                    .lock()
+                    .ok()
+                    .map(|mut g| {
+                        if scroll_x > 0 || scroll_y > 0 {
+                            g.pending_scroll_restore
+                                .insert(tab_id, (scroll_x, scroll_y));
+                        }
+                        let inc = g
+                            .windows
+                            .get(&window_id)
+                            .map(|w| w.incognito)
+                            .unwrap_or(false);
+                        let sh = g
+                            .windows
+                            .get(&window_id)
+                            .map(|w| w.shell_height)
+                            .unwrap_or(112);
+                        (inc, sh)
+                    })
+                    .unwrap_or((false, 112));
+                if let Some((parent, rect)) = host.get_window_rect(window_id) {
+                    if let Err(err) = engine.create_tab_view(
+                        window_id,
+                        tab_id,
+                        incognito,
+                        parent,
+                        RectPx {
+                            x: 0,
+                            y: shell_h,
+                            width: rect.width,
+                            height: (rect.height - shell_h).max(1),
+                        },
+                        &url,
+                    ) {
+                        error!("WakeTabView failed: {err}");
+                    }
+                }
+            }
             HostEffect::NavigateTabView { tab_id, url } => engine.navigate_tab(tab_id, &url),
             HostEffect::ReloadTabView { tab_id } => engine.reload_tab(tab_id),
             HostEffect::HardReloadTabView { tab_id } => {
@@ -972,8 +1095,45 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::BroadcastState { window_id } => broadcast_window_state(state, window_id),
             HostEffect::BroadcastSettings => broadcast_settings_all(state),
             HostEffect::BroadcastTheme => broadcast_theme_all(state),
+            HostEffect::BroadcastMemory => broadcast_memory_all(state),
         }
     }
+}
+
+fn sleep_tab_browser(state: &Arc<Mutex<SharedState>>, tab_id: TabId) {
+    let before_mem = measure_browser_tree_memory();
+    let browser = state
+        .lock()
+        .ok()
+        .and_then(|mut g| g.tab_browsers.remove(&tab_id));
+
+    let Some(browser) = browser else {
+        return;
+    };
+
+    if let Some(host) = browser.host() {
+        let hwnd_raw = host.window_handle().0 as isize;
+        let captured = capture_hwnd_thumbnail_jpeg(hwnd_raw, tab_id);
+        if captured {
+            if let Ok(mut g) = state.lock() {
+                g.core.set_tab_thumbnail_ready(tab_id, true);
+            }
+        }
+        host.close_browser(1);
+    }
+
+    // Measure actual OS Private Bytes delta ~1.5s after closing the CEF tab view so
+    // Chromium has time to tear down the renderer (or detect a shared renderer process).
+    let state_clone = state.clone();
+    let before_mb = before_mem.total_private_mb();
+    let before_procs = before_mem.process_count;
+    let _ = std::thread::Builder::new()
+        .name("seu-sleep-delta".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            let mut task = MeasureSleepDeltaTask::new(state_clone, tab_id, before_mb, before_procs);
+            post_task(ThreadId::UI, Some(&mut task));
+        });
 }
 
 struct SeuBridgeQueryHandler {
@@ -1090,6 +1250,33 @@ wrap_app! {
     }
 
     impl App {
+        fn on_before_command_line_processing(
+            &self,
+            _process_type: Option<&CefString>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            let Some(cmd) = command_line else {
+                return;
+            };
+            // Documented in docs/adr/002-chromium-memory-flags.md:
+            // Disable background services and BackForwardCache heap retention to reduce
+            // baseline RAM without breaking web apps.
+            for flag in [
+                "disable-background-networking",
+                "disable-component-update",
+                "disable-domain-reliability",
+                "disable-sync",
+                "disable-breakpad",
+                "metrics-recording-only",
+            ] {
+                let sw = CefString::from(flag);
+                cmd.append_switch(Some(&sw));
+            }
+            let disable_feat = CefString::from("disable-features");
+            let feat_val = CefString::from("BackForwardCache");
+            cmd.append_switch_with_value(Some(&disable_feat), Some(&feat_val));
+        }
+
         fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
             let Some(registrar) = registrar else {
                 return;
@@ -1150,6 +1337,7 @@ wrap_browser_process_handler! {
             );
 
             create_full_browser_window(&self.state, window_id, false, tab_id, &initial_url);
+            start_memory_monitor_thread(self.state.clone());
         }
 
         fn on_already_running_app_relaunch(
@@ -1343,6 +1531,66 @@ wrap_display_handler! {
             }
             broadcast_window_state(&self.state, window_id);
         }
+
+        fn on_media_access_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            has_video_access: ::std::os::raw::c_int,
+            has_audio_access: ::std::os::raw::c_int,
+        ) {
+            let ViewKind::Tab { window_id, tab_id } = self.kind else {
+                return;
+            };
+            if let Ok(mut guard) = self.state.lock() {
+                guard
+                    .core
+                    .set_tab_media_capture(tab_id, has_video_access != 0 || has_audio_access != 0);
+            }
+            broadcast_window_state(&self.state, window_id);
+        }
+
+        fn on_console_message(
+            &self,
+            _browser: Option<&mut Browser>,
+            _level: LogSeverity,
+            message: Option<&CefString>,
+            _source: Option<&CefString>,
+            _line: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let ViewKind::Tab { tab_id, .. } = self.kind else {
+                return 0;
+            };
+            let msg = message.map(|m| m.to_string()).unwrap_or_default();
+            let prefix = self
+                .state
+                .lock()
+                .ok()
+                .map(|g| format!("__SEU_PROBE__{}:", g.probe_token))
+                .unwrap_or_default();
+            if prefix.is_empty() {
+                return 0;
+            }
+            let Some(json_str) = msg.strip_prefix(&prefix) else {
+                return 0;
+            };
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                let dirty = val.get("dirty").and_then(|v| v.as_bool());
+                let beforeunload = val.get("beforeunload").and_then(|v| v.as_bool());
+                let sx = val.get("sx").and_then(|v| v.as_i64()).map(|n| n as i32);
+                let sy = val.get("sy").and_then(|v| v.as_i64()).map(|n| n as i32);
+                let audible = val.get("audible").and_then(|v| v.as_bool());
+
+                let changed_win = self.state.lock().ok().and_then(|mut g| {
+                    g.core
+                        .update_tab_probe(tab_id, dirty, beforeunload, sx, sy, audible)
+                });
+                if let Some(wid) = changed_win {
+                    broadcast_window_state(&self.state, wid);
+                }
+            }
+            // Suppress internal probe messages from the console.
+            1
+        }
     }
 }
 
@@ -1374,6 +1622,56 @@ wrap_load_handler! {
                 );
             }
             broadcast_window_state(&self.state, window_id);
+        }
+
+        fn on_load_end(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _http_status_code: ::std::os::raw::c_int,
+        ) {
+            let ViewKind::Tab { tab_id, .. } = self.kind else {
+                return;
+            };
+            let Some(frame) = frame else {
+                return;
+            };
+            if frame.is_main() == 0 {
+                return;
+            }
+            let url = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&url) {
+                return;
+            }
+
+            let (token, pending_scroll) = self
+                .state
+                .lock()
+                .ok()
+                .map(|mut g| {
+                    (
+                        g.probe_token.clone(),
+                        g.pending_scroll_restore.remove(&tab_id),
+                    )
+                })
+                .unwrap_or_default();
+
+            if !token.is_empty() {
+                let probe_js = build_tab_probe_script(&token);
+                let code = CefString::from(probe_js.as_str());
+                let script_url = CefString::from("seu://internal/probe");
+                frame.execute_java_script(Some(&code), Some(&script_url), 0);
+            }
+
+            if let Some((sx, sy)) = pending_scroll {
+                // Retry scroll restoration briefly after load to handle SPAs & lazy-loaded layouts.
+                let scroll_js = format!(
+                    "(function(){{var x={sx},y={sy};function go(){{window.scrollTo(x,y);}}go();setTimeout(go,250);setTimeout(go,850);}})();"
+                );
+                let code = CefString::from(scroll_js.as_str());
+                let script_url = CefString::from("seu://internal/scroll");
+                frame.execute_java_script(Some(&code), Some(&script_url), 0);
+            }
         }
     }
 }
@@ -1831,30 +2129,16 @@ wrap_task! {
                             _ => Vec::new(),
                         }
                     }
-                    ShortcutAction::NextTab => match guard.core.cycle_tab(self.window_id, true) {
-                        Ok(Some(tid)) => vec![
-                            HostEffect::ActivateTabView {
-                                window_id: self.window_id,
-                                tab_id: tid,
-                            },
-                            HostEffect::BroadcastState {
-                                window_id: self.window_id,
-                            },
-                        ],
-                        _ => Vec::new(),
-                    },
-                    ShortcutAction::PrevTab => match guard.core.cycle_tab(self.window_id, false) {
-                        Ok(Some(tid)) => vec![
-                            HostEffect::ActivateTabView {
-                                window_id: self.window_id,
-                                tab_id: tid,
-                            },
-                            HostEffect::BroadcastState {
-                                window_id: self.window_id,
-                            },
-                        ],
-                        _ => Vec::new(),
-                    },
+                    ShortcutAction::NextTab => {
+                        wake_or_activate_tab_effects(&mut guard, self.window_id, |core, wid| {
+                            core.cycle_tab(wid, true).ok().flatten()
+                        })
+                    }
+                    ShortcutAction::PrevTab => {
+                        wake_or_activate_tab_effects(&mut guard, self.window_id, |core, wid| {
+                            core.cycle_tab(wid, false).ok().flatten()
+                        })
+                    }
                     ShortcutAction::Reload => active_tab
                         .map(|tab_id| vec![HostEffect::ReloadTabView { tab_id }])
                         .unwrap_or_default(),
@@ -1977,32 +2261,14 @@ wrap_task! {
                             ShortcutAction::SwitchTab7 => 6,
                             _ => 7,
                         };
-                        match guard.core.activate_tab_by_index(self.window_id, idx) {
-                            Ok(Some(tid)) => vec![
-                                HostEffect::ActivateTabView {
-                                    window_id: self.window_id,
-                                    tab_id: tid,
-                                },
-                                HostEffect::BroadcastState {
-                                    window_id: self.window_id,
-                                },
-                            ],
-                            _ => Vec::new(),
-                        }
+                        wake_or_activate_tab_effects(&mut guard, self.window_id, |core, wid| {
+                            core.activate_tab_by_index(wid, idx).ok().flatten()
+                        })
                     }
                     ShortcutAction::SwitchTabLast => {
-                        match guard.core.activate_last_tab(self.window_id) {
-                            Ok(Some(tid)) => vec![
-                                HostEffect::ActivateTabView {
-                                    window_id: self.window_id,
-                                    tab_id: tid,
-                                },
-                                HostEffect::BroadcastState {
-                                    window_id: self.window_id,
-                                },
-                            ],
-                            _ => Vec::new(),
-                        }
+                        wake_or_activate_tab_effects(&mut guard, self.window_id, |core, wid| {
+                            core.activate_last_tab(wid).ok().flatten()
+                        })
                     }
                     ShortcutAction::ToggleMenu => Vec::new(),
                 }
@@ -2065,6 +2331,225 @@ wrap_task! {
             if !effects.is_empty() {
                 execute_effects(&self.state, effects);
             }
+        }
+    }
+}
+
+fn wake_or_activate_tab_effects<F>(
+    guard: &mut SharedState,
+    window_id: WindowId,
+    select_fn: F,
+) -> Vec<HostEffect>
+where
+    F: FnOnce(&mut BrowserCore, WindowId) -> Option<TabId>,
+{
+    let Some(tid) = select_fn(&mut guard.core, window_id) else {
+        return Vec::new();
+    };
+    let needs_spawn = !guard.tab_browsers.contains_key(&tid);
+    let mut out = Vec::new();
+    if needs_spawn {
+        let url = guard
+            .core
+            .get_tab(tid)
+            .map(|t| t.url.clone())
+            .unwrap_or_else(|| seu_core::NEWTAB_URL.to_string());
+        let (sx, sy) = guard
+            .core
+            .tab_memory_meta(tid)
+            .map(|m| (m.scroll_x, m.scroll_y))
+            .unwrap_or((0, 0));
+        out.push(HostEffect::WakeTabView {
+            window_id,
+            tab_id: tid,
+            url,
+            scroll_x: sx,
+            scroll_y: sy,
+        });
+    }
+    out.push(HostEffect::ActivateTabView {
+        window_id,
+        tab_id: tid,
+    });
+    out.push(HostEffect::BroadcastState { window_id });
+    if needs_spawn {
+        out.push(HostEffect::BroadcastMemory);
+    }
+    out
+}
+
+fn start_memory_monitor_thread(state: Arc<Mutex<SharedState>>) {
+    let running = match state.lock() {
+        Ok(g) => {
+            if g.monitor_running.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            g.monitor_running.clone()
+        }
+        Err(_) => return,
+    };
+
+    let _ = std::thread::Builder::new()
+        .name("seu-mem-monitor".into())
+        .spawn(move || {
+            while running.load(Ordering::SeqCst) {
+                let mut task = MemoryTickTask::new(state.clone());
+                post_task(ThreadId::UI, Some(&mut task));
+                std::thread::sleep(Duration::from_secs(3));
+            }
+        });
+}
+
+fn build_tab_probe_script(token: &str) -> String {
+    format!(
+        r#"(function(){{
+  if (window.__seuProbeInstalled) return;
+  window.__seuProbeInstalled = true;
+  var prefix = "__SEU_PROBE__{token}:";
+  var dirty = false, hasBeforeUnload = false, lastAudible = false;
+  var timer = null;
+  function emit() {{
+    var playing = false;
+    try {{
+      var media = document.querySelectorAll('video,audio');
+      for (var i = 0; i < media.length; i++) {{
+        var m = media[i];
+        if (!m.paused && !m.ended && !m.muted && m.volume > 0 && m.readyState > 1) {{
+          playing = true; break;
+        }}
+      }}
+    }} catch(_) {{}}
+    lastAudible = playing;
+    try {{
+      console.debug(prefix + JSON.stringify({{
+        dirty: dirty,
+        beforeunload: hasBeforeUnload || (typeof window.onbeforeunload === 'function'),
+        sx: Math.round(window.scrollX || 0),
+        sy: Math.round(window.scrollY || 0),
+        audible: playing
+      }}));
+    }} catch(_) {{}}
+  }}
+  function schedule() {{
+    if (timer) return;
+    timer = setTimeout(function(){{ timer = null; emit(); }}, 350);
+  }}
+  document.addEventListener('input', function(e) {{
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) {{
+      dirty = true;
+      schedule();
+    }}
+  }}, true);
+  document.addEventListener('submit', function() {{ dirty = false; schedule(); }}, true);
+  window.addEventListener('scroll', schedule, {{ passive: true }});
+  var origAdd = window.addEventListener;
+  window.addEventListener = function(type, listener, opts) {{
+    if (type === 'beforeunload') {{ hasBeforeUnload = true; schedule(); }}
+    return origAdd.apply(this, arguments);
+  }};
+  setInterval(function() {{
+    var playing = false;
+    try {{
+      var media = document.querySelectorAll('video,audio');
+      for (var i = 0; i < media.length; i++) {{
+        var m = media[i];
+        if (!m.paused && !m.ended && !m.muted && m.volume > 0 && m.readyState > 1) {{
+          playing = true; break;
+        }}
+      }}
+    }} catch(_) {{}}
+    if (playing !== lastAudible) emit();
+  }}, 2000);
+}})();"#
+    )
+}
+
+wrap_task! {
+    struct MemoryTickTask {
+        state: Arc<Mutex<SharedState>>,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let mem = measure_browser_tree_memory();
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+
+            let effects = {
+                let Ok(mut guard) = self.state.lock() else {
+                    return;
+                };
+                guard.core.update_os_memory_metrics(
+                    mem.total_private_mb(),
+                    mem.total_working_set_mb(),
+                    mem.process_count,
+                );
+
+                let due = guard.core.select_due_sleep_tabs(now_ms, false);
+                let mut out = Vec::new();
+                let mut touched_windows = Vec::new();
+                for tid in due {
+                    if let Ok(wid) = guard.core.mark_tab_sleeping(tid, false) {
+                        out.push(HostEffect::SleepTabView {
+                            window_id: wid,
+                            tab_id: tid,
+                        });
+                        if !touched_windows.contains(&wid) {
+                            touched_windows.push(wid);
+                        }
+                    }
+                }
+                for wid in touched_windows {
+                    out.push(HostEffect::BroadcastState { window_id: wid });
+                }
+                out
+            };
+
+            if !effects.is_empty() {
+                execute_effects(&self.state, effects);
+            }
+            broadcast_memory_all(&self.state);
+        }
+    }
+}
+
+wrap_task! {
+    struct MeasureSleepDeltaTask {
+        state: Arc<Mutex<SharedState>>,
+        tab_id: TabId,
+        before_private_mb: u32,
+        before_procs: usize,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let after = measure_browser_tree_memory();
+            let after_mb = after.total_private_mb();
+            let delta_mb = self.before_private_mb.saturating_sub(after_mb);
+            let shared = after.process_count >= self.before_procs && delta_mb < 5;
+
+            if let Ok(mut guard) = self.state.lock() {
+                // Only record delta if the tab is still sleeping (user didn't wake it immediately).
+                let still_sleeping = guard
+                    .core
+                    .get_tab(self.tab_id)
+                    .map(|t| t.state == TabLifecycleState::Sleeping)
+                    .unwrap_or(false);
+                if still_sleeping {
+                    guard
+                        .core
+                        .record_sleep_ram_delta(self.tab_id, delta_mb, shared);
+                }
+                guard.core.update_os_memory_metrics(
+                    after_mb,
+                    after.total_working_set_mb(),
+                    after.process_count,
+                );
+            }
+            broadcast_memory_all(&self.state);
         }
     }
 }
