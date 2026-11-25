@@ -25,7 +25,7 @@ use seu_blocker::{
 use seu_bridge::{handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{
     shortcuts::{match_shortcut_vk, ShortcutAction},
-    BrowserCore, CoreSettings, TabId, TabLifecycleState, WindowId, WindowSnapshot,
+    BrowserCore, CoreSettings, TabId, WindowId, WindowSnapshot,
 };
 use seu_storage::Storage;
 use seu_themes::ThemeRegistry;
@@ -1282,7 +1282,7 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
             } = &mut *guard;
             let storage_guard = storage.lock().ok();
             let db_ref = storage_guard.as_ref().and_then(|g| g.as_ref());
-            match blocker.write() {
+            let res = match blocker.write() {
                 Ok(mut blocker_guard) => handle_raw_request(
                     &origin_url,
                     request,
@@ -1294,7 +1294,9 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                 Err(_) => Err(seu_bridge::BridgeError::InvalidArgument(
                     "blocker lock error".into(),
                 )),
-            }
+            };
+            drop(storage_guard);
+            res
         };
 
         match result {
