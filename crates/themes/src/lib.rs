@@ -5,16 +5,24 @@
 //! and validation layer can be shared with Android via UniFFI (SPEC §6.1, §12.1).
 
 pub mod sanitize;
+pub mod user_themes;
+pub mod wcag;
 
 use include_dir::{include_dir, Dir};
 use sanitize::{validate_and_rewrite_css, validate_and_sanitize_html};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use thiserror::Error;
+use user_themes::{
+    default_user_themes_dir, export_theme_package, import_font_asset, import_theme_package,
+    load_disk_theme_dir, save_user_theme as persist_user_theme, ImportedFontResult,
+    SaveUserThemeInput,
+};
 
 pub const DEFAULT_THEME_ID: &str = "y2k-maximal";
 
-static BUILTIN_THEMES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../themes");
+pub(crate) static BUILTIN_THEMES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../themes");
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ThemeError {
@@ -32,6 +40,8 @@ pub enum ThemeError {
     UnsafeCss(String),
     #[error("json parse error: {0}")]
     Json(String),
+    #[error("io error: {0}")]
+    Io(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -255,6 +265,7 @@ pub fn tokens_to_css(tokens: &ThemeTokens) -> String {
 #[derive(Debug)]
 pub struct ThemeRegistry {
     themes: BTreeMap<String, LoadedTheme>,
+    user_dir: PathBuf,
 }
 
 const OFFICIAL_THEME_ORDER: &[&str] = &[
@@ -271,12 +282,102 @@ const OFFICIAL_THEME_ORDER: &[&str] = &[
 
 impl ThemeRegistry {
     pub fn load_builtin() -> Result<Self, ThemeError> {
+        Self::load_with_user_dir(default_user_themes_dir())
+    }
+
+    pub fn load_with_user_dir(user_dir: PathBuf) -> Result<Self, ThemeError> {
         let mut themes = BTreeMap::new();
         for dir in BUILTIN_THEMES_DIR.dirs() {
             let loaded = load_embedded_theme_dir(dir)?;
             themes.insert(loaded.manifest.id.clone(), loaded);
         }
-        Ok(Self { themes })
+        let mut reg = Self { themes, user_dir };
+        reg.reload_user_themes();
+        Ok(reg)
+    }
+
+    pub fn user_dir(&self) -> &std::path::Path {
+        &self.user_dir
+    }
+
+    pub fn reload_user_themes(&mut self) -> usize {
+        self.themes.retain(|_, t| t.builtin);
+        let mut loaded_count = 0usize;
+        if let Ok(rd) = std::fs::read_dir(&self.user_dir) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                if let Ok(loaded) = load_disk_theme_dir(&p) {
+                    if !self.is_builtin(&loaded.manifest.id) {
+                        self.themes.insert(loaded.manifest.id.clone(), loaded);
+                        loaded_count += 1;
+                    }
+                }
+            }
+        }
+        loaded_count
+    }
+
+    pub fn is_builtin(&self, id: &str) -> bool {
+        self.themes.get(id).map(|t| t.builtin).unwrap_or(false)
+    }
+
+    pub fn get_exact(&self, id: &str) -> Option<&LoadedTheme> {
+        self.themes.get(id)
+    }
+
+    pub fn save_user_theme(
+        &mut self,
+        input: SaveUserThemeInput,
+    ) -> Result<LoadedTheme, ThemeError> {
+        let loaded = persist_user_theme(self, &self.user_dir, input)?;
+        self.themes
+            .insert(loaded.manifest.id.clone(), loaded.clone());
+        Ok(loaded)
+    }
+
+    pub fn delete_user_theme(&mut self, id: &str) -> Result<(), ThemeError> {
+        if self.is_builtin(id) {
+            return Err(ThemeError::InvalidId(format!(
+                "{id} is a built-in theme and cannot be deleted"
+            )));
+        }
+        if !user_themes::is_valid_theme_id(id) {
+            return Err(ThemeError::InvalidId(id.to_string()));
+        }
+        self.themes.remove(id);
+        let target = self.user_dir.join(id);
+        if target.is_dir() {
+            std::fs::remove_dir_all(&target).map_err(|e| ThemeError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    pub fn export_package(&self, id: &str) -> Result<Vec<u8>, ThemeError> {
+        export_theme_package(self, &self.user_dir, id)
+    }
+
+    pub fn import_package(&mut self, zip_bytes: &[u8]) -> Result<LoadedTheme, ThemeError> {
+        let loaded = import_theme_package(self, &self.user_dir, zip_bytes)?;
+        self.themes
+            .insert(loaded.manifest.id.clone(), loaded.clone());
+        Ok(loaded)
+    }
+
+    pub fn import_font(
+        &mut self,
+        theme_id: &str,
+        filename: &str,
+        bytes: &[u8],
+    ) -> Result<ImportedFontResult, ThemeError> {
+        let res = import_font_asset(&self.user_dir, theme_id, filename, bytes)?;
+        let dir = self.user_dir.join(theme_id);
+        if let Ok(reloaded) = load_disk_theme_dir(&dir) {
+            self.themes.insert(reloaded.manifest.id.clone(), reloaded);
+        }
+        Ok(res)
     }
 
     pub fn list_summaries(&self) -> Vec<ThemeSummary> {

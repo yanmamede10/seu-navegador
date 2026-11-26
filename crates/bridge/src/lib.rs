@@ -28,10 +28,14 @@ use seu_studio::{
     workspace::{FileContent, FileEntry, SearchMatch},
     StudioService, WorkspaceSummary,
 };
-use seu_themes::{LoadedTheme, ThemeRegistry, ThemeSummary};
+use seu_themes::{
+    user_themes::{base64_decode, base64_encode, ImportedFontResult, SaveUserThemeInput},
+    wcag::{evaluate_semantic_contrast, ContrastCheck},
+    LoadedTheme, SemanticTokens, ThemeRegistry, ThemeSummary, ThemeTokens, DEFAULT_THEME_ID,
+};
 use thiserror::Error;
 
-pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BridgeError {
@@ -164,8 +168,43 @@ pub enum BridgeRequest {
     ThemesList,
     #[serde(rename = "themes.getActive")]
     ThemesGetActive,
+    #[serde(rename = "themes.getById")]
+    ThemesGetById { id: String },
     #[serde(rename = "themes.setActive")]
     ThemesSetActive { id: String },
+    #[serde(rename = "themes.save")]
+    ThemesSave {
+        id: String,
+        name: String,
+        author: String,
+        description: String,
+        base_id: Option<String>,
+        tokens: ThemeTokens,
+        #[serde(default)]
+        extra_shell_css: Option<String>,
+        #[serde(default)]
+        extra_newtab_css: Option<String>,
+        #[serde(default)]
+        activate: Option<bool>,
+    },
+    #[serde(rename = "themes.delete")]
+    ThemesDelete { id: String },
+    #[serde(rename = "themes.export")]
+    ThemesExport { id: String },
+    #[serde(rename = "themes.import")]
+    ThemesImport { base64: String },
+    #[serde(rename = "themes.importFont")]
+    ThemesImportFont {
+        theme_id: String,
+        filename: String,
+        base64: String,
+    },
+    #[serde(rename = "themes.checkContrast")]
+    ThemesCheckContrast { semantic: SemanticTokens },
+    #[serde(rename = "themes.getUserDir")]
+    ThemesGetUserDir,
+    #[serde(rename = "themes.reloadUser")]
+    ThemesReloadUser,
 
     #[serde(rename = "shortcuts.set")]
     ShortcutsSet { action: String, combo: String },
@@ -368,6 +407,16 @@ pub enum BridgeResponse {
     Settings(CoreSettings),
     ThemesList(Vec<ThemeSummary>),
     ThemeActive(Box<LoadedTheme>),
+    ThemeExported {
+        filename: String,
+        base64: String,
+        size_bytes: usize,
+    },
+    ThemeFontImported(ImportedFontResult),
+    ThemeContrast(Vec<ContrastCheck>),
+    ThemeUserDir {
+        path: String,
+    },
     ImportProfiles(Vec<DetectedBrowserProfile>),
     ImportCompleted(ImportReport),
     DataSummary {
@@ -564,7 +613,7 @@ pub fn handle_raw_request(
     origin_url: &str,
     raw_json: &str,
     core: &mut BrowserCore,
-    themes: &ThemeRegistry,
+    themes: &mut ThemeRegistry,
     storage: Option<&Storage>,
     blocker: &mut BlockerService,
     studio: &mut StudioService,
@@ -596,7 +645,7 @@ pub fn handle_raw_request(
 pub fn dispatch_request(
     req: BridgeRequest,
     core: &mut BrowserCore,
-    themes: &ThemeRegistry,
+    themes: &mut ThemeRegistry,
     storage: Option<&Storage>,
     blocker: &mut BlockerService,
     studio: &mut StudioService,
@@ -1034,6 +1083,17 @@ pub fn dispatch_request(
                 effects: Vec::new(),
             })
         }
+        BridgeRequest::ThemesGetById { id } => {
+            let found = themes
+                .get_exact(&id)
+                .or_else(|| themes.get(&id))
+                .cloned()
+                .ok_or_else(|| BridgeError::InvalidArgument(format!("theme not found: {id}")))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeActive(Box::new(found)),
+                effects: Vec::new(),
+            })
+        }
         BridgeRequest::ThemesSetActive { id } => {
             if !themes.exists(&id) {
                 return Err(BridgeError::InvalidArgument(format!(
@@ -1048,6 +1108,123 @@ pub fn dispatch_request(
             Ok(DispatchOutput {
                 response: BridgeResponse::ThemeActive(Box::new(active)),
                 effects: vec![HostEffect::BroadcastTheme, HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::ThemesSave {
+            id,
+            name,
+            author,
+            description,
+            base_id,
+            tokens,
+            extra_shell_css,
+            extra_newtab_css,
+            activate,
+        } => {
+            let saved = themes
+                .save_user_theme(SaveUserThemeInput {
+                    id,
+                    name,
+                    author,
+                    description,
+                    base_id,
+                    tokens,
+                    extra_shell_css,
+                    extra_newtab_css,
+                })
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let should_activate = activate.unwrap_or(true);
+            let mut effects = Vec::new();
+            if should_activate {
+                core.settings.active_theme_id = saved.manifest.id.clone();
+                effects.push(HostEffect::BroadcastTheme);
+                effects.push(HostEffect::BroadcastSettings);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeActive(Box::new(saved)),
+                effects,
+            })
+        }
+        BridgeRequest::ThemesDelete { id } => {
+            themes
+                .delete_user_theme(&id)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let mut effects = Vec::new();
+            if core.settings.active_theme_id == id {
+                core.settings.active_theme_id = DEFAULT_THEME_ID.to_string();
+                effects.push(HostEffect::BroadcastTheme);
+                effects.push(HostEffect::BroadcastSettings);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemesList(themes.list_summaries()),
+                effects,
+            })
+        }
+        BridgeRequest::ThemesExport { id } => {
+            let bytes = themes
+                .export_package(&id)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let size_bytes = bytes.len();
+            let base64 = base64_encode(&bytes);
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeExported {
+                    filename: format!("{id}.seutheme"),
+                    base64,
+                    size_bytes,
+                },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::ThemesImport { base64 } => {
+            let bytes =
+                base64_decode(&base64).map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let imported = themes
+                .import_package(&bytes)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeActive(Box::new(imported)),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::ThemesImportFont {
+            theme_id,
+            filename,
+            base64,
+        } => {
+            let bytes =
+                base64_decode(&base64).map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let res = themes
+                .import_font(&theme_id, &filename, &bytes)
+                .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            let effects = if core.settings.active_theme_id == theme_id {
+                vec![HostEffect::BroadcastTheme]
+            } else {
+                Vec::new()
+            };
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeFontImported(res),
+                effects,
+            })
+        }
+        BridgeRequest::ThemesCheckContrast { semantic } => Ok(DispatchOutput {
+            response: BridgeResponse::ThemeContrast(evaluate_semantic_contrast(&semantic)),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::ThemesGetUserDir => {
+            let dir = themes.user_dir().to_path_buf();
+            let _ = std::fs::create_dir_all(&dir);
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemeUserDir {
+                    path: dir.to_string_lossy().to_string(),
+                },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::ThemesReloadUser => {
+            themes.reload_user_themes();
+            Ok(DispatchOutput {
+                response: BridgeResponse::ThemesList(themes.list_summaries()),
+                effects: vec![HostEffect::BroadcastTheme],
             })
         }
         BridgeRequest::ShortcutsSet { action, combo } => {
@@ -1978,14 +2155,14 @@ mod tests {
     #[test]
     fn denies_non_seu_origins() {
         let mut core = BrowserCore::new();
-        let themes = test_registry();
+        let mut themes = test_registry();
         let mut blocker = BlockerService::new();
         let mut studio = StudioService::new();
         let err = handle_raw_request(
             "https://evil.example/",
             r#"{"method":"settings.get"}"#,
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -1999,7 +2176,7 @@ mod tests {
     #[test]
     fn allows_seu_origin_and_dispatches_requests() {
         let mut core = BrowserCore::new();
-        let themes = test_registry();
+        let mut themes = test_registry();
         let mut blocker = BlockerService::new();
         let mut studio = StudioService::new();
         let (win_id, _) = core.create_window(false, None);
@@ -2011,7 +2188,7 @@ mod tests {
             "seu://shell/",
             &payload,
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -2031,7 +2208,7 @@ mod tests {
             "seu://shell/",
             r#"{"method":"themes.getActive"}"#,
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -2047,7 +2224,7 @@ mod tests {
             "seu://settings/",
             r#"{"method":"shortcuts.set","params":{"action":"tab.new","combo":"Ctrl+Q"}}"#,
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -2064,7 +2241,7 @@ mod tests {
             "seu://overlay/",
             r#"{"method":"blocker.toggleSite","params":{"domain":"example.com"}}"#,
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -2084,7 +2261,7 @@ mod tests {
                 r#"{{"method":"studio.setMode","params":{{"window_id":{win_id},"mode":"split"}}}}"#
             ),
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -2105,7 +2282,7 @@ mod tests {
                 r#"{{"method":"studio.setMode","params":{{"window_id":{win_id},"mode":"browser"}}}}"#
             ),
             &mut core,
-            &themes,
+            &mut themes,
             None,
             &mut blocker,
             &mut studio,
@@ -2124,7 +2301,7 @@ mod tests {
     #[test]
     fn rejects_invalid_json_and_invalid_locale() {
         let mut core = BrowserCore::new();
-        let themes = test_registry();
+        let mut themes = test_registry();
         let mut blocker = BlockerService::new();
         let mut studio = StudioService::new();
         assert!(matches!(
@@ -2132,7 +2309,7 @@ mod tests {
                 "seu://shell/",
                 "{not-json",
                 &mut core,
-                &themes,
+                &mut themes,
                 None,
                 &mut blocker,
                 &mut studio,
@@ -2146,7 +2323,7 @@ mod tests {
                 "seu://shell/",
                 r#"{"method":"settings.setLocale","params":{"locale":"xx-YY"}}"#,
                 &mut core,
-                &themes,
+                &mut themes,
                 None,
                 &mut blocker,
                 &mut studio,

@@ -405,7 +405,17 @@ fn point_in_rect(x: i32, y: i32, r: RectPx) -> bool {
 }
 
 fn decorate_internal_url(url: &str, window_id: WindowId, tab_id: TabId) -> String {
-    let trimmed = url.trim().trim_end_matches('/');
+    let raw = url.trim();
+    if let Some((base, query)) = raw.split_once('?') {
+        let trimmed_base = base.trim_end_matches('/');
+        if trimmed_base == "seu://themes/editor" {
+            if query.contains("win=") {
+                return raw.to_string();
+            }
+            return format!("seu://themes/editor?{query}&win={window_id}&tab={tab_id}");
+        }
+    }
+    let trimmed = raw.trim_end_matches('/');
     match trimmed {
         "seu://newtab" => format!("seu://newtab/?win={window_id}&tab={tab_id}"),
         "seu://settings" => format!("seu://settings/?win={window_id}&tab={tab_id}"),
@@ -413,12 +423,16 @@ fn decorate_internal_url(url: &str, window_id: WindowId, tab_id: TabId) -> Strin
         "seu://bookmarks" => format!("seu://bookmarks/?win={window_id}&tab={tab_id}"),
         "seu://downloads" => format!("seu://downloads/?win={window_id}&tab={tab_id}"),
         "seu://themes" => format!("seu://themes/?win={window_id}&tab={tab_id}"),
+        "seu://themes/editor" => format!("seu://themes/editor?win={window_id}&tab={tab_id}"),
         "seu://studio" => format!("seu://studio/?win={window_id}&tab={tab_id}"),
         _ => url.to_string(),
     }
 }
 
 fn normalize_internal_display_url(raw_url: &str) -> String {
+    if raw_url.starts_with("seu://themes/editor") {
+        return "seu://themes/editor".to_string();
+    }
     for prefix in [
         "seu://newtab/",
         "seu://settings/",
@@ -3669,13 +3683,28 @@ where
     out
 }
 
+wrap_task! {
+    struct ReloadUserThemesTask {
+        state: Arc<Mutex<SharedState>>,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            if let Ok(mut guard) = self.state.lock() {
+                guard.themes.reload_user_themes();
+            }
+            broadcast_theme_all(&self.state);
+        }
+    }
+}
+
 fn start_memory_monitor_thread(state: Arc<Mutex<SharedState>>) {
-    let running = match state.lock() {
+    let (running, user_themes_dir) = match state.lock() {
         Ok(g) => {
             if g.monitor_running.swap(true, Ordering::SeqCst) {
                 return;
             }
-            g.monitor_running.clone()
+            (g.monitor_running.clone(), g.themes.user_dir().to_path_buf())
         }
         Err(_) => return,
     };
@@ -3683,9 +3712,19 @@ fn start_memory_monitor_thread(state: Arc<Mutex<SharedState>>) {
     let _ = std::thread::Builder::new()
         .name("seu-mem-monitor".into())
         .spawn(move || {
+            let mut last_theme_fp =
+                seu_themes::user_themes::compute_dir_fingerprint(&user_themes_dir);
             while running.load(Ordering::SeqCst) {
                 let mut task = MemoryTickTask::new(state.clone());
                 post_task(ThreadId::UI, Some(&mut task));
+
+                let next_fp = seu_themes::user_themes::compute_dir_fingerprint(&user_themes_dir);
+                if next_fp != last_theme_fp {
+                    last_theme_fp = next_fp;
+                    let mut reload = ReloadUserThemesTask::new(state.clone());
+                    post_task(ThreadId::UI, Some(&mut reload));
+                }
+
                 std::thread::sleep(Duration::from_secs(3));
             }
         });

@@ -26,6 +26,7 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 include_dir = "0.7"
 jpeg-encoder = "0.6"
 adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 cef = "156"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

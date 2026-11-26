@@ -39,6 +39,17 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
 
     if host == "theme" {
         if let Some((theme_id, rel_path)) = raw_path.split_once('/') {
+            let user_dir = seu_themes::user_themes::default_user_themes_dir();
+            if let Some(bytes) =
+                seu_themes::user_themes::resolve_user_theme_asset(&user_dir, theme_id, rel_path)
+            {
+                return ResolvedAsset {
+                    status_code: 200,
+                    status_text: "OK",
+                    mime_type: mime_for_path(rel_path),
+                    bytes,
+                };
+            }
             if let Some(bytes) = ThemeRegistry::resolve_builtin_asset(theme_id, rel_path) {
                 return ResolvedAsset {
                     status_code: 200,
@@ -63,7 +74,9 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
         return not_found();
     }
 
-    let candidate_path = if raw_path.is_empty() {
+    let candidate_path = if host == "themes" && raw_path.trim_end_matches('/') == "editor" {
+        "theme-editor.html"
+    } else if raw_path.is_empty() {
         match host.as_str() {
             "shell" => "shell.html",
             "overlay" => "overlay.html",
@@ -163,6 +176,10 @@ mod tests {
         let themes = resolve_seu_url("seu://themes/?win=1");
         assert_eq!(themes.status_code, 200);
         assert_eq!(themes.mime_type, "text/html");
+
+        let editor = resolve_seu_url("seu://themes/editor?base=y2k-maximal");
+        assert_eq!(editor.status_code, 200);
+        assert_eq!(editor.mime_type, "text/html");
 
         let bad = resolve_seu_url("seu://shell/../../secret");
         assert_eq!(bad.status_code, 404);

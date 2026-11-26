@@ -7,6 +7,7 @@ import {
   onBridgeEvent,
   type CoreSettings,
   type LoadedTheme,
+  type ThemeExportPayload,
   type ThemeSummary,
   type WindowSnapshot,
 } from "./bridge";
@@ -15,7 +16,7 @@ const root = document.getElementById("themes-root") as HTMLDivElement;
 const windowId = getWindowIdFromQuery();
 const selfTabId = getTabIdFromQuery();
 
-type FilterKind = "all" | "dark" | "light";
+type FilterKind = "all" | "dark" | "light" | "custom";
 
 let locale: "pt-br" | "en" = "pt-br";
 let themes: ThemeSummary[] = [];
@@ -60,6 +61,66 @@ async function navigateSelf(url: string): Promise<void> {
   }).catch(() => undefined);
   if (snap?.active_tab_id) {
     await callBridge("tabs.navigate", { tab_id: snap.active_tab_id, input: url });
+  }
+}
+
+async function exportTheme(id: string): Promise<void> {
+  try {
+    const exp = await callBridge<ThemeExportPayload>("themes.export", { id });
+    if (!exp) return;
+    const bin = atob(exp.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exp.filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    bannerText = l(
+      `Exportado: ${exp.filename} (${Math.round(exp.size_bytes / 1024)} KB)`,
+      `Exported: ${exp.filename} (${Math.round(exp.size_bytes / 1024)} KB)`,
+    );
+    render();
+  } catch (err) {
+    bannerText = err instanceof Error ? err.message : String(err);
+    render();
+  }
+}
+
+async function importThemeFile(file: File): Promise<void> {
+  try {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    const imported = await callBridge<LoadedTheme>("themes.import", { base64 });
+    const list = await callBridge<ThemeSummary[]>("themes.list").catch(() => themes);
+    if (Array.isArray(list)) themes = list;
+    if (imported) {
+      bannerText = l(
+        `Tema "${imported.manifest.name}" importado com segurança (JS de sites desativado por padrão).`,
+        `Theme "${imported.manifest.name}" imported safely (site scripts disabled by default).`,
+      );
+    }
+    render();
+  } catch (err) {
+    bannerText = err instanceof Error ? err.message : String(err);
+    render();
+  }
+}
+
+async function deleteUserTheme(id: string): Promise<void> {
+  try {
+    const list = await callBridge<ThemeSummary[]>("themes.delete", { id });
+    if (Array.isArray(list)) themes = list;
+    bannerText = l(`Tema "${id}" removido.`, `Theme "${id}" deleted.`);
+    render();
+  } catch (err) {
+    bannerText = err instanceof Error ? err.message : String(err);
+    render();
   }
 }
 
@@ -204,6 +265,29 @@ function render(): void {
   const actions = document.createElement("div");
   actions.className = "tg-actions";
 
+  const createBtn = document.createElement("button");
+  createBtn.type = "button";
+  createBtn.className = "tg-btn primary";
+  createBtn.innerHTML = `<i class="fa-solid fa-plus" aria-hidden="true"></i><span>${l("Criar tema", "Create theme")}</span>`;
+  createBtn.addEventListener("click", () => {
+    void navigateSelf(`seu://themes/editor?base=${encodeURIComponent(activeThemeId)}`);
+  });
+
+  const importInput = document.createElement("input");
+  importInput.type = "file";
+  importInput.accept = ".seutheme,.zip";
+  importInput.style.display = "none";
+  importInput.addEventListener("change", () => {
+    const file = importInput.files?.[0];
+    if (file) void importThemeFile(file);
+  });
+
+  const importBtn = document.createElement("button");
+  importBtn.type = "button";
+  importBtn.className = "tg-btn";
+  importBtn.innerHTML = `<i class="fa-solid fa-file-import" aria-hidden="true"></i><span>${l("Importar .seutheme", "Import .seutheme")}</span>`;
+  importBtn.addEventListener("click", () => importInput.click());
+
   const studioBtn = document.createElement("button");
   studioBtn.type = "button";
   studioBtn.className = "tg-btn";
@@ -214,12 +298,15 @@ function render(): void {
 
   const newTabBtn = document.createElement("button");
   newTabBtn.type = "button";
-  newTabBtn.className = "tg-btn primary";
+  newTabBtn.className = "tg-btn";
   newTabBtn.innerHTML = `<i class="fa-solid fa-house" aria-hidden="true"></i><span>${l("Ver Nova Aba", "Open New Tab")}</span>`;
   newTabBtn.addEventListener("click", () => {
     void navigateSelf("seu://newtab/");
   });
 
+  actions.appendChild(createBtn);
+  actions.appendChild(importInput);
+  actions.appendChild(importBtn);
   actions.appendChild(studioBtn);
   actions.appendChild(newTabBtn);
   header.appendChild(titleCol);
@@ -236,12 +323,14 @@ function render(): void {
   const toolbar = document.createElement("div");
   toolbar.className = "tg-toolbar";
 
+  const customCount = themes.filter((t) => !t.builtin).length;
   const filters = document.createElement("div");
   filters.className = "tg-filters";
   for (const [id, label] of [
-    ["all", l("Todos (9)", "All (9)")],
+    ["all", l(`Todos (${themes.length})`, `All (${themes.length})`)],
     ["dark", l("Escuros", "Dark")],
     ["light", l("Claros", "Light")],
+    ["custom", l(`Meus temas (${customCount})`, `My themes (${customCount})`)],
   ] as const) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -284,7 +373,8 @@ function renderCardsOnly(grid: HTMLElement): void {
   const q = searchQuery.trim().toLowerCase();
 
   const visible = themes.filter((item) => {
-    if (filter !== "all" && item.preview) {
+    if (filter === "custom" && item.builtin) return false;
+    if ((filter === "dark" || filter === "light") && item.preview) {
       const dark = isDarkHex(item.preview.bg);
       if (filter === "dark" && !dark) return false;
       if (filter === "light" && dark) return false;
@@ -347,6 +437,41 @@ function renderCardsOnly(grid: HTMLElement): void {
       }
     }
 
+    const btnGroup = document.createElement("div");
+    btnGroup.style.display = "flex";
+    btnGroup.style.gap = "6px";
+    btnGroup.style.flexWrap = "wrap";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "tg-apply-btn";
+    editBtn.title = item.builtin ? l("Personalizar cópia", "Customize copy") : l("Editar tema", "Edit theme");
+    editBtn.innerHTML = `<i class="fa-solid fa-pen" aria-hidden="true"></i>`;
+    editBtn.addEventListener("click", () => {
+      const param = item.builtin ? `base=${encodeURIComponent(item.id)}` : `edit=${encodeURIComponent(item.id)}`;
+      void navigateSelf(`seu://themes/editor?${param}`);
+    });
+
+    const expBtn = document.createElement("button");
+    expBtn.type = "button";
+    expBtn.className = "tg-apply-btn";
+    expBtn.title = l("Exportar .seutheme", "Export .seutheme");
+    expBtn.innerHTML = `<i class="fa-solid fa-file-export" aria-hidden="true"></i>`;
+    expBtn.addEventListener("click", () => void exportTheme(item.id));
+
+    btnGroup.appendChild(editBtn);
+    btnGroup.appendChild(expBtn);
+
+    if (!item.builtin) {
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "tg-apply-btn";
+      delBtn.title = l("Excluir tema", "Delete theme");
+      delBtn.innerHTML = `<i class="fa-solid fa-trash" aria-hidden="true"></i>`;
+      delBtn.addEventListener("click", () => void deleteUserTheme(item.id));
+      btnGroup.appendChild(delBtn);
+    }
+
     const applyBtn = document.createElement("button");
     applyBtn.type = "button";
     applyBtn.className = `tg-apply-btn${isActive ? " active" : ""}`;
@@ -356,9 +481,10 @@ function renderCardsOnly(grid: HTMLElement): void {
     applyBtn.addEventListener("click", () => {
       void activateTheme(item.id);
     });
+    btnGroup.appendChild(applyBtn);
 
     foot.appendChild(swatches);
-    foot.appendChild(applyBtn);
+    foot.appendChild(btnGroup);
     body.appendChild(foot);
     card.appendChild(body);
     grid.appendChild(card);

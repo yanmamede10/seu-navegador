@@ -275,6 +275,30 @@ export interface ThemeSummary {
   preview?: ThemePreview;
 }
 
+export interface SemanticTokens {
+  bg: string;
+  surface: string;
+  surface2: string;
+  text: string;
+  text_muted: string;
+  accent: string;
+  accent_text: string;
+  border: string;
+  danger: string;
+  incognito_bg: string;
+  incognito_accent: string;
+  font_display: string;
+  font_body: string;
+  font_mono: string;
+  radius: string;
+  shadow: string;
+}
+
+export interface ThemeTokens {
+  semantic: SemanticTokens;
+  custom: Record<string, string>;
+}
+
 export interface LoadedTheme {
   manifest: {
     id: string;
@@ -282,7 +306,9 @@ export interface LoadedTheme {
     version: string;
     author: string;
     description: string;
+    base?: string | null;
   };
+  tokens: ThemeTokens;
   tokens_css: string;
   shell_html: string | null;
   shell_css: string;
@@ -290,6 +316,29 @@ export interface LoadedTheme {
   newtab_css: string;
   base_url: string;
   builtin: boolean;
+}
+
+export interface ThemeExportPayload {
+  filename: string;
+  base64: string;
+  size_bytes: number;
+}
+
+export interface ImportedFontResult {
+  family: string;
+  filename: string;
+  url: string;
+  font_face_css: string;
+}
+
+export interface ContrastCheck {
+  pair: string;
+  fg: string;
+  bg: string;
+  ratio: number;
+  aa_normal: boolean;
+  aa_large: boolean;
+  aaa_normal: boolean;
 }
 
 export type BridgeEvent =

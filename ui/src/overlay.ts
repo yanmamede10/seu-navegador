@@ -209,6 +209,10 @@ function renderMenu(): void {
     navigateMenuUrl("seu://themes/");
   });
 
+  addActionButton("fa-solid fa-pen-ruler", l("Editor de temas", "Theme editor"), () => {
+    navigateMenuUrl("seu://themes/editor");
+  });
+
   addActionButton("fa-solid fa-sliders", t("menu.settings"), () => {
     navigateMenuUrl("seu://settings/");
   });
