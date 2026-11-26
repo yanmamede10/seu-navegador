@@ -4311,15 +4311,11 @@ wrap_task! {
                 let Ok(guard) = self.state.lock() else {
                     return;
                 };
-                if let Some(host) = guard.host.as_ref() {
-                    guard
-                        .windows
-                        .keys()
-                        .filter_map(|&wid| host.get_window_rect(wid).map(|(h, _)| h))
-                        .collect()
-                } else {
-                    Vec::new()
-                }
+                guard
+                    .windows
+                    .keys()
+                    .filter_map(|&wid| guard.host.get_window_rect(wid).map(|(h, _)| h))
+                    .collect()
             };
             let game_sample = sample_windows_game_state(now_ms, &browser_handles);
 
