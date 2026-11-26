@@ -1058,21 +1058,22 @@ function renderAgentsPanel(): HTMLElement {
     qaHead.appendChild(inspectBtn);
     qaCard.appendChild(qaHead);
 
-    if (qaSnapshot) {
+    if (qaSnapshot && typeof qaSnapshot.url === "string") {
+      const errCount = qaSnapshot.console_errors?.length ?? 0;
       const meta = document.createElement("div");
       meta.style.fontSize = "11px";
       meta.style.color = "var(--seu-text-muted)";
-      meta.textContent = `${qaSnapshot.url} (${qaSnapshot.viewport_w}x${qaSnapshot.viewport_h})`;
+      meta.textContent = `${qaSnapshot.url} (${qaSnapshot.viewport_w ?? 0}x${qaSnapshot.viewport_h ?? 0})`;
       qaCard.appendChild(meta);
 
       const badges = document.createElement("div");
       badges.className = "cli-chips";
       const errChip = document.createElement("span");
-      errChip.className = `agent-pill${qaSnapshot.console_errors.length === 0 ? " ok" : " err"}`;
-      errChip.textContent = `Console err: ${qaSnapshot.console_errors.length}`;
+      errChip.className = `agent-pill${errCount === 0 ? " ok" : " err"}`;
+      errChip.textContent = `Console err: ${errCount}`;
       const elChip = document.createElement("span");
       elChip.className = "agent-pill";
-      elChip.textContent = `DOM elems: ${qaSnapshot.interactive_count}`;
+      elChip.textContent = `DOM elems: ${qaSnapshot.interactive_count ?? 0}`;
       badges.appendChild(errChip);
       badges.appendChild(elChip);
       qaCard.appendChild(badges);
@@ -1338,9 +1339,9 @@ async function bootstrap(): Promise<void> {
   // Hydrate workspace, CLIs, agent config & QA snapshot progressively without blocking paint.
   void callBridge<StudioWorkspaceSummary | null>("studio.getWorkspace")
     .then((ws) => {
-      if (ws) {
+      if (ws && typeof ws.root_path === "string") {
         workspace = ws;
-        dirCache = new Map([["", ws.entries]]);
+        dirCache = new Map([["", ws.entries ?? []]]);
         statusText = l(`Workspace: ${ws.name}`, `Workspace: ${ws.name}`);
         render();
       }

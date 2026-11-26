@@ -389,7 +389,7 @@ export async function callBridge<T = unknown>(
         onSuccess: (raw) => {
           try {
             const parsed = JSON.parse(raw) as { kind: string; data?: T };
-            resolve((parsed.data ?? parsed) as T);
+            resolve(("data" in parsed ? parsed.data : parsed) as T);
           } catch (err) {
             reject(err);
           }
