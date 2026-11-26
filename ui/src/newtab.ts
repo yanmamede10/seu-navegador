@@ -196,6 +196,14 @@ function renderAll(): void {
     currentSettings.locale === "en"
       ? `${currentMemory.saved_mb} MB returned`
       : `${currentMemory.saved_mb} MB devolvidos`;
+  const totalMbLabel =
+    currentMemory.total_private_mb > 0
+      ? `${currentMemory.total_private_mb} MB`
+      : "-- MB";
+  const sleepingSummary =
+    currentSettings.locale === "en"
+      ? `${sleepingCount} ${sleepingCount === 1 ? "tab" : "tabs"} · ${savedLabel}`
+      : `${sleepingCount} ${sleepingCount === 1 ? "aba" : "abas"} · ${savedLabel}`;
 
   const categoryItems: RepeatItem[] = (
     [
@@ -211,12 +219,21 @@ function renderAll(): void {
     state: activeCategory === id ? "active" : "",
   }));
 
-  const shortcutItems: RepeatItem[] = shortcuts.map((s) => ({
-    id: s.id,
-    code: s.code,
-    name: s.name,
-    url: s.url,
-  }));
+  const shortcutItems: RepeatItem[] = shortcuts.map((s) => {
+    let domain = s.url;
+    try {
+      domain = new URL(s.url).hostname.replace(/^www\./, "");
+    } catch {
+      // keep raw
+    }
+    return {
+      id: s.id,
+      code: s.code,
+      name: s.name,
+      url: s.url,
+      domain,
+    };
+  });
 
   const themeItems: RepeatItem[] = themeList.map((item) => ({
     id: item.id,
@@ -239,6 +256,8 @@ function renderAll(): void {
       memory: {
         sleepingCount,
         savedText: savedLabel,
+        totalMb: totalMbLabel,
+        sleepingSummary,
       },
       media: {
         source: "—",

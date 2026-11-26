@@ -1,0 +1,55 @@
+<div class="neu-page">
+  <main class="neu-stage">
+    <div class="neu-emblem neu-up"><div class="neu-emblem-in neu-in">SN</div></div>
+    <h1 class="neu-hero">Seu Navegador</h1>
+
+    <form class="neu-search neu-in" data-seu-submit="search">
+      <div class="neu-search-inner">
+        <i class="fa-solid fa-magnifying-glass neu-s-ico" aria-hidden="true"></i>
+        <input class="neu-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
+        <button type="submit" class="neu-search-btn neu-up" data-seu-t="newtab.searchButton">Buscar</button>
+      </div>
+    </form>
+
+    <div class="neu-chips" data-seu-container="searchCategories">
+      <template data-seu-repeat="searchCategories">
+        <button type="button" class="neu-chip neu-up" data-seu-action="search.setCategory" data-seu-param="$item.id" data-seu-bind="$item.label">Web</button>
+      </template>
+    </div>
+
+    <div class="neu-shortcuts" data-seu-container="shortcuts">
+      <template data-seu-repeat="shortcuts">
+        <a class="neu-sc neu-up" data-seu-href="$item.url" data-seu-action="tabs.navigate" data-seu-param="$item.url">
+          <span class="neu-sc-dot neu-in" data-seu-bind="$item.code">YT</span>
+          <span data-seu-bind="$item.name">YouTube</span>
+        </a>
+      </template>
+    </div>
+
+    <div class="neu-widgets">
+      <div class="neu-widget neu-up">
+        <div class="neu-w-label" data-seu-t="y2k.tickerSleeping">Abas dormindo</div>
+        <div class="neu-w-val" data-seu-bind="memory.sleepingSummary">0 abas · 0 MB devolvidos</div>
+        <div class="neu-bar neu-in"><div class="neu-bar-fill"></div></div>
+      </div>
+      <div class="neu-widget neu-up neu-w-row">
+        <div>
+          <div class="neu-w-label" data-seu-t="y2k.gameModeTitle">Modo jogo</div>
+          <div class="neu-w-val" data-seu-bind="gameMode.label">Desligado</div>
+        </div>
+        <button type="button" class="neu-toggle neu-in" data-seu-action="gameMode.toggle" aria-label="Modo jogo">
+          <span class="neu-toggle-dot neu-up"></span>
+        </button>
+      </div>
+      <div class="neu-widget neu-up neu-w-row">
+        <div>
+          <div class="neu-w-label" data-seu-t="y2k.tickerTheme">Tema</div>
+          <div class="neu-w-val" data-seu-bind="theme.name">Neumorphism</div>
+        </div>
+        <button type="button" class="neu-gal-btn neu-up" data-seu-action="tabs.navigateThemes">
+          <i class="fa-solid fa-palette" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+  </main>
+</div>

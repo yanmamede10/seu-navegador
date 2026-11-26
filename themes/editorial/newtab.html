@@ -1,0 +1,60 @@
+<div class="ed-page">
+  <div class="ed-sheet">
+    <div class="ed-masthead-meta">
+      <span>Edição Nº 01</span>
+      <span>Página inicial</span>
+      <span>Memória em uso: <strong data-seu-bind="memory.totalMb">-- MB</strong></span>
+    </div>
+
+    <h1 class="ed-hero">Seu <em>Navegador</em></h1>
+    <p class="ed-sub">Leve, pessoal e editado por você.</p>
+
+    <form class="ed-search" data-seu-submit="search">
+      <div class="ed-search-inner">
+        <span class="ed-s-label">Pesquisar —</span>
+        <input class="ed-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
+        <button type="submit" class="ed-search-btn" data-seu-t="newtab.searchButton">Buscar</button>
+      </div>
+    </form>
+
+    <div class="ed-chips" data-seu-container="searchCategories">
+      <template data-seu-repeat="searchCategories">
+        <button type="button" class="ed-chip" data-seu-action="search.setCategory" data-seu-param="$item.id" data-seu-bind="$item.label">Web</button>
+      </template>
+    </div>
+
+    <div class="ed-columns">
+      <section class="ed-index-col">
+        <div class="ed-kicker">Índice</div>
+        <div class="ed-index-grid" data-seu-container="shortcuts">
+          <template data-seu-repeat="shortcuts">
+            <a class="ed-index-item" data-seu-href="$item.url" data-seu-action="tabs.navigate" data-seu-param="$item.url">
+              <span class="ed-roman" data-seu-bind="$index" data-seu-format="roman">I</span>
+              <span class="ed-iname" data-seu-bind="$item.name">YouTube</span>
+            </a>
+          </template>
+        </div>
+      </section>
+
+      <aside class="ed-aside">
+        <div class="ed-kicker">Nesta edição</div>
+        <p class="ed-lead">
+          <span data-seu-bind="memory.sleepingCount">0</span> abas em repouso ·
+          <em data-seu-bind="memory.savedText">0 MB devolvidos</em> ao sistema.
+        </p>
+        <p class="ed-body">
+          O bloqueador barrou <strong data-seu-bind="blocker.totalBlocked">0</strong> rastreadores nesta sessão.
+          Tema ativo: <strong data-seu-bind="theme.name">Editorial</strong>.
+        </p>
+        <div class="ed-aside-row">
+          <span class="ed-aside-title" data-seu-t="y2k.gameModeTitle">Modo jogo</span>
+          <button type="button" class="ed-outline-btn" data-seu-action="gameMode.toggle" data-seu-bind="gameMode.label">Desligado</button>
+        </div>
+        <div class="ed-aside-row">
+          <span class="ed-aside-title">Galeria de temas</span>
+          <button type="button" class="ed-outline-btn" data-seu-action="tabs.navigateThemes">Explorar</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>

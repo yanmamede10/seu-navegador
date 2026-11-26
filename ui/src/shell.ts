@@ -369,6 +369,7 @@ function renderAll(): void {
 
 function mountTheme(theme: LoadedTheme): void {
   currentTheme = theme;
+  lastReportedShellHeight = 0;
   runtime.applyStyles(theme.tokens_css, theme.shell_css);
   if (theme.shell_html) {
     runtime.mount(theme.shell_html);

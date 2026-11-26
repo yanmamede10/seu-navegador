@@ -1,0 +1,23 @@
+{
+  "id": "brutalist",
+  "name": "Brutalista",
+  "version": "1.0.0",
+  "author": "Yan Mamede",
+  "description": "HTML cru: fontes do sistema, links azuis sublinhados, bordas pretas, zero enfeite.",
+  "base": null,
+  "entry": {
+    "tokens": "tokens.json",
+    "shell_css": "shell.css",
+    "shell_html": "shell.html",
+    "newtab_html": "newtab.html",
+    "newtab_css": "newtab.css"
+  },
+  "sites": {},
+  "permissions": {
+    "site_scripts": false
+  },
+  "mobile": {
+    "shell": null,
+    "newtab": null
+  }
+}

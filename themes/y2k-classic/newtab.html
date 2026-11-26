@@ -1,0 +1,47 @@
+<div class="yc-page">
+  <main class="yc-stage">
+    <div class="yc-hero-block">
+      <span class="yc-kicker">BEM-VINDO AO</span>
+      <h1 class="yc-hero">SEU NAVEGADOR</h1>
+      <span class="yc-sub">versão 1.0 · a internet do futuro</span>
+    </div>
+
+    <div class="yc-panel">
+      <form class="yc-search" data-seu-submit="search">
+        <div class="yc-search-inner">
+          <input class="yc-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
+          <button type="submit" class="yc-gel yc-search-btn" data-seu-t="newtab.searchButton">Buscar!</button>
+        </div>
+      </form>
+      <div class="yc-chips" data-seu-container="searchCategories">
+        <template data-seu-repeat="searchCategories">
+          <button type="button" class="yc-chip" data-seu-action="search.setCategory" data-seu-param="$item.id" data-seu-bind="$item.label">Web</button>
+        </template>
+      </div>
+    </div>
+
+    <div class="yc-shortcuts" data-seu-container="shortcuts">
+      <template data-seu-repeat="shortcuts">
+        <a class="yc-sc" data-seu-href="$item.url" data-seu-action="tabs.navigate" data-seu-param="$item.url">
+          <span class="yc-orb" data-seu-bind="$item.code">YT</span>
+          <span data-seu-bind="$item.name">YouTube</span>
+        </a>
+      </template>
+    </div>
+
+    <div class="yc-widgets">
+      <div class="yc-w">
+        <strong class="yc-w-lbl">Abas dormindo:</strong>
+        <span data-seu-bind="memory.sleepingSummary">0 abas · 0 MB liberados</span>
+      </div>
+      <div class="yc-w yc-w-row">
+        <strong class="yc-w-lbl" data-seu-t="y2k.gameModeTitle">Modo jogo</strong>
+        <button type="button" class="yc-gelg yc-gel-btn" data-seu-action="gameMode.toggle" data-seu-bind="gameMode.label">DESLIGADO</button>
+      </div>
+      <div class="yc-w yc-w-row">
+        <strong class="yc-w-lbl" data-seu-bind="theme.name">Y2K clássico</strong>
+        <button type="button" class="yc-gel yc-gel-btn yc-white-txt" data-seu-action="tabs.navigateThemes">Temas</button>
+      </div>
+    </div>
+  </main>
+</div>

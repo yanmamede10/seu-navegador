@@ -1,0 +1,48 @@
+<div class="br-page">
+  <h1 class="br-hero">SEU<br />NAVEGADOR.</h1>
+  <p class="br-intro">
+    Isto é um navegador. Ele usa <mark class="br-mark" data-seu-bind="memory.totalMb">-- MB</mark> de RAM agora. Não tem enfeite. Pesquise abaixo.
+  </p>
+
+  <form class="br-search" data-seu-submit="search">
+    <div class="br-search-inner">
+      <input class="br-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
+      <button type="submit" class="br-search-btn" data-seu-t="newtab.searchButton">BUSCAR -&gt;</button>
+    </div>
+  </form>
+
+  <div class="br-chips" data-seu-container="searchCategories">
+    <template data-seu-repeat="searchCategories">
+      <button type="button" class="br-chip" data-seu-action="search.setCategory" data-seu-param="$item.id" data-seu-bind="$item.label">WEB</button>
+    </template>
+  </div>
+
+  <div class="br-grid">
+    <div class="br-col-links">
+      <h2 class="br-h2">/// ATALHOS</h2>
+      <ol class="br-ol" data-seu-container="shortcuts">
+        <template data-seu-repeat="shortcuts">
+          <li>
+            <a class="br-link" data-seu-href="$item.url" data-seu-action="tabs.navigate" data-seu-param="$item.url" data-seu-bind="$item.name">YouTube</a>
+            <span class="br-domain" data-seu-bind="$item.domain">youtube.com</span>
+          </li>
+        </template>
+      </ol>
+    </div>
+
+    <aside class="br-status-box">
+      <div class="br-st-title">STATUS.TXT</div>
+      <div>--------------------------</div>
+      <div>abas ativas: <span data-seu-bind="window.liveTabsCount">1</span></div>
+      <div>abas dormindo: <span data-seu-bind="memory.sleepingSummary">0 abas</span></div>
+      <div>rastreadores barrados: <span data-seu-bind="blocker.totalBlocked">0</span></div>
+      <div>modo jogo: <mark class="br-mark" data-seu-bind="gameMode.label">DESLIGADO</mark></div>
+      <div>tema: <span data-seu-bind="theme.name">Brutalista</span></div>
+      <div>--------------------------</div>
+      <div class="br-st-actions">
+        <button type="button" class="br-raw-btn" data-seu-action="gameMode.toggle">[alternar modo jogo]</button>
+        <button type="button" class="br-raw-btn" data-seu-action="tabs.navigateThemes">[galeria de temas]</button>
+      </div>
+    </aside>
+  </div>
+</div>

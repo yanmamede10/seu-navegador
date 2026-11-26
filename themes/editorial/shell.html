@@ -1,0 +1,83 @@
+<div class="ed-shell" data-seu-root="shell">
+  <div class="ed-bar">
+    <div class="ed-groups" data-seu-container="tabGroups">
+      <template data-seu-repeat="tabGroups">
+        <button type="button" class="ed-group-chip" data-seu-action="tabGroups.toggleCollapse" data-seu-style-bg="$item.color">
+          <i data-seu-icon="$item.collapseIcon" aria-hidden="true"></i>
+          <span data-seu-bind="$item.title">Grupo</span>
+        </button>
+      </template>
+    </div>
+    <div class="ed-tabs" data-seu-container="tabs">
+      <template data-seu-repeat="tabs">
+        <div class="ed-tab" data-seu-action="tabs.activate" data-seu-context-action="tabs.pin" data-seu-middle-action="tabs.close">
+          <span class="ed-tab-title" data-seu-bind="$item.title">Início</span>
+          <span class="ed-tab-zzz" data-seu-if="$item.isSleeping">repouso</span>
+          <button type="button" class="ed-tab-close" data-seu-action="tabs.close" data-seu-title-t="tabs.close" aria-label="Fechar aba">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="ed-cell-btn" data-seu-action="tabs.create" data-seu-title-t="tabs.new" aria-label="Nova aba">
+      <i class="fa-solid fa-plus" aria-hidden="true"></i>
+    </button>
+    <div class="ed-drag" data-seu-drag-region>
+      <span class="ed-incog" data-seu-if="window.incognito" data-seu-t="app.incognito">ANÔNIMO</span>
+    </div>
+    <div class="ed-win-btns">
+      <button type="button" class="ed-win-btn" data-seu-action="windows.minimize" data-seu-title-t="window.minimize" aria-label="Minimizar">
+        <i class="fa-solid fa-minus" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="ed-win-btn" data-seu-action="windows.maximize" data-seu-title-t="window.maximize" aria-label="Maximizar">
+        <i class="fa-regular fa-square" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="ed-win-btn ed-win-close" data-seu-action="windows.close" data-seu-title-t="window.close" aria-label="Fechar">
+        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="ed-nav">
+    <button type="button" class="ed-nav-btn" data-seu-action="tabs.back" data-seu-disabled-unless="activeTab.can_go_back" data-seu-title-t="nav.back" aria-label="Voltar">
+      <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="ed-nav-btn" data-seu-action="tabs.forward" data-seu-disabled-unless="activeTab.can_go_forward" data-seu-title-t="nav.forward" aria-label="Avançar">
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="ed-nav-btn" data-seu-action="tabs.reload" data-seu-title-t="nav.reload" aria-label="Recarregar">
+      <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
+    </button>
+
+    <form class="ed-omnibox" data-seu-submit="omnibox">
+      <span class="ed-irpara">ir para</span>
+      <input class="ed-url-input" type="text" autocomplete="off" spellcheck="false" data-seu-input="omnibox" data-seu-placeholder-t="nav.omniboxPlaceholder" aria-label="Endereço" />
+      <button type="button" class="ed-star-btn" data-seu-action="bookmarks.toggle" data-seu-title-t="nav.bookmark" aria-label="Favoritar">
+        <i data-seu-icon="activeTab.bookmarkIcon" aria-hidden="true"></i>
+      </button>
+    </form>
+
+    <div class="ed-mode-switch" role="group" aria-label="Modo">
+      <button type="button" class="ed-mode-btn" data-mode="browser" data-seu-action="studio.setMode" data-seu-param="browser" data-seu-title-t="nav.modeBrowser">
+        <i class="fa-solid fa-globe" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="ed-mode-btn" data-mode="split" data-seu-action="studio.setMode" data-seu-param="split" data-seu-title-t="nav.modeSplit">
+        <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="ed-mode-btn" data-mode="studio" data-seu-action="studio.setMode" data-seu-param="studio" data-seu-title-t="nav.modeStudio">
+        <i class="fa-solid fa-code" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <button type="button" class="ed-pill" data-seu-action="overlay.toggleMemory" data-seu-title-t="badge.ram">
+      <span data-seu-bind="memory.badgeText">RAM -- MB</span>
+    </button>
+    <button type="button" class="ed-pill" data-seu-action="overlay.toggleBlocker" data-seu-title-t="badge.blocker">
+      <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+      <span data-seu-bind="blocker.totalBlocked">0</span>
+    </button>
+    <button type="button" class="ed-nav-btn ed-menu" data-seu-action="overlay.toggleMenu" data-seu-title-t="nav.menu" aria-label="Menu">
+      <i class="fa-solid fa-bars" aria-hidden="true"></i>
+    </button>
+  </div>
+</div>

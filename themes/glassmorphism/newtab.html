@@ -1,0 +1,57 @@
+<div class="gl-page">
+  <div class="gl-blob gl-b1" aria-hidden="true"></div>
+  <div class="gl-blob gl-b2" aria-hidden="true"></div>
+  <div class="gl-blob gl-b3" aria-hidden="true"></div>
+
+  <main class="gl-stage">
+    <h1 class="gl-hero">seu <strong>navegador</strong></h1>
+
+    <form class="gl-glass gl-search" data-seu-submit="search">
+      <div class="gl-search-inner">
+        <i class="fa-solid fa-magnifying-glass gl-s-ico" aria-hidden="true"></i>
+        <input class="gl-search-input" type="text" autocomplete="off" data-seu-input="search" data-seu-placeholder-t="newtab.searchPlaceholder" aria-label="Pesquisar" />
+        <button type="submit" class="gl-search-btn" data-seu-t="newtab.searchButton">Buscar</button>
+      </div>
+    </form>
+
+    <div class="gl-chips" data-seu-container="searchCategories">
+      <template data-seu-repeat="searchCategories">
+        <button type="button" class="gl-chip" data-seu-action="search.setCategory" data-seu-param="$item.id" data-seu-bind="$item.label">Web</button>
+      </template>
+    </div>
+
+    <div class="gl-shortcuts" data-seu-container="shortcuts">
+      <template data-seu-repeat="shortcuts">
+        <a class="gl-glass gl-sc" data-seu-href="$item.url" data-seu-action="tabs.navigate" data-seu-param="$item.url">
+          <span class="gl-sc-badge" data-seu-bind="$item.code">YT</span>
+          <span class="gl-sc-name" data-seu-bind="$item.name">YouTube</span>
+        </a>
+      </template>
+    </div>
+
+    <div class="gl-widgets">
+      <div class="gl-glass gl-widget">
+        <div class="gl-w-label" data-seu-t="y2k.tickerSleeping">Abas dormindo</div>
+        <div class="gl-w-val" data-seu-bind="memory.sleepingSummary">0 abas · 0 MB devolvidos</div>
+      </div>
+      <div class="gl-glass gl-widget gl-w-row">
+        <div>
+          <div class="gl-w-label" data-seu-t="y2k.gameModeTitle">Modo jogo</div>
+          <div class="gl-w-val" data-seu-bind="gameMode.label">Desligado</div>
+        </div>
+        <button type="button" class="gl-toggle" data-seu-action="gameMode.toggle" aria-label="Modo jogo">
+          <span class="gl-toggle-dot"></span>
+        </button>
+      </div>
+      <div class="gl-glass gl-widget gl-w-row">
+        <div>
+          <div class="gl-w-label" data-seu-t="y2k.tickerTheme">Tema</div>
+          <div class="gl-w-val" data-seu-bind="theme.name">Glassmorphism</div>
+        </div>
+        <button type="button" class="gl-gallery-btn" data-seu-action="tabs.navigateThemes">
+          <i class="fa-solid fa-palette" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+  </main>
+</div>

@@ -1,0 +1,142 @@
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/nunito-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/nunito-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(./assets/fonts/nunito-600-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(./assets/fonts/nunito-600-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url(./assets/fonts/nunito-800-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url(./assets/fonts/nunito-800-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--seu-bg); color: var(--seu-text);
+  font-family: var(--seu-font-body); user-select: none; overflow: hidden;
+}
+.neu-up { box-shadow: 5px 5px 11px #BCC4D3, -5px -5px 11px #FFFFFF; }
+.neu-in { box-shadow: inset 4px 4px 8px #BCC4D3, inset -4px -4px 8px #FFFFFF; }
+[data-incognito="true"] .neu-up { box-shadow: 4px 4px 10px #161A26, -4px -4px 10px #333B52; }
+[data-incognito="true"] .neu-in { box-shadow: inset 4px 4px 8px #161A26, inset -4px -4px 8px #333B52; }
+[data-incognito="true"] .neu-shell { color: #E4E9F2; }
+.neu-shell {
+  padding: 10px 16px 10px; background: var(--seu-bg);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.neu-row-top, .neu-row-nav { display: flex; align-items: center; gap: 10px; }
+.neu-groups { display: flex; gap: 6px; flex-shrink: 0; }
+.neu-group-chip {
+  height: 30px; padding: 0 11px; border-radius: 12px; border: none;
+  color: #1A2238; font-weight: 800; font-size: 11px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.neu-tabs {
+  display: flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0;
+  overflow-x: auto; scrollbar-width: none; padding: 4px 2px;
+}
+.neu-tabs::-webkit-scrollbar { display: none; }
+.neu-tab {
+  height: 36px; max-width: 210px; min-width: 96px; padding: 0 10px 0 14px;
+  border-radius: 13px; border: none; background: var(--seu-bg); color: var(--seu-text);
+  font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 7px;
+  cursor: pointer; flex-shrink: 0;
+}
+.neu-tab[data-state~="active"] {
+  box-shadow: inset 4px 4px 8px #BCC4D3, inset -4px -4px 8px #FFFFFF;
+  color: var(--seu-accent); font-weight: 800;
+}
+[data-incognito="true"] .neu-tab[data-state~="active"] {
+  box-shadow: inset 4px 4px 8px #161A26, inset -4px -4px 8px #333B52;
+}
+.neu-tab[data-state~="sleeping"] { color: var(--seu-text-muted); opacity: 0.78; }
+.neu-tab[data-state~="pinned"] { min-width: 40px; max-width: 44px; justify-content: center; padding: 0; }
+.neu-tab[data-state~="pinned"] .neu-tab-close, .neu-tab[data-state~="pinned"] .neu-tab-title { display: none; }
+.neu-tab-icon { font-size: 12px; color: var(--seu-accent); flex-shrink: 0; }
+.neu-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.neu-tab-zzz { font-size: 11px; color: var(--seu-text-muted); }
+.neu-tab-close {
+  width: 20px; height: 20px; border-radius: 50%; border: none; background: transparent;
+  color: var(--seu-text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+}
+.neu-tab-close:hover { color: var(--seu-danger); }
+.neu-sq-btn, .neu-round-btn {
+  width: 36px; height: 36px; border: none; background: var(--seu-bg); color: var(--seu-text);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px;
+}
+.neu-sq-btn { border-radius: 12px; color: var(--seu-accent); }
+.neu-round-btn { border-radius: 50%; }
+.neu-round-btn:disabled { opacity: 0.45; cursor: default; }
+.neu-drag { flex: 1 1 24px; min-width: 24px; height: 36px; display: flex; align-items: center; justify-content: flex-end; }
+.neu-incog { padding: 3px 10px; border-radius: 12px; background: var(--seu-accent); color: #FFFFFF; font-size: 11px; font-weight: 800; }
+.neu-win-btns { display: flex; gap: 7px; flex-shrink: 0; }
+.neu-win-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: none; background: var(--seu-bg);
+  color: var(--seu-text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+}
+.neu-win-close:hover { color: var(--seu-danger); }
+.neu-omnibox {
+  flex: 1 1 260px; min-width: 0; height: 38px; padding: 0 16px; border-radius: 19px;
+  background: var(--seu-bg); display: flex; align-items: center; gap: 8px;
+}
+.neu-url-input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  color: inherit; font-family: var(--seu-font-body); font-size: 14px; font-weight: 600; user-select: text;
+}
+.neu-url-input::placeholder { color: var(--seu-text-muted); }
+.neu-star-btn { border: none; background: transparent; color: var(--seu-accent); cursor: pointer; font-size: 14px; }
+.neu-mode-switch {
+  display: inline-flex; align-items: center; padding: 3px; gap: 3px; border-radius: 19px; flex-shrink: 0;
+}
+.neu-mode-btn {
+  width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent;
+  color: var(--seu-text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+[data-mode="browser"] .neu-mode-btn[data-mode="browser"],
+[data-mode="split"] .neu-mode-btn[data-mode="split"],
+[data-mode="studio"] .neu-mode-btn[data-mode="studio"] {
+  background: var(--seu-accent); color: #FFFFFF;
+}
+.neu-pill {
+  height: 36px; padding: 0 14px; border-radius: 18px; border: none; background: var(--seu-bg);
+  color: var(--seu-accent); font-family: var(--seu-font-body); font-weight: 800; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex-shrink: 0;
+}

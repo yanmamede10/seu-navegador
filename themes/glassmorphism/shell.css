@@ -1,0 +1,180 @@
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-300-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-300-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-600-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-600-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(./assets/fonts/outfit-700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--seu-bg); color: var(--seu-text);
+  font-family: var(--seu-font-body); user-select: none; overflow: hidden;
+}
+.gl-shell {
+  padding: 8px 10px 6px;
+  background: radial-gradient(circle at 12% 0%, rgba(255, 79, 163, 0.35), transparent 44%),
+              radial-gradient(circle at 88% 10%, rgba(62, 201, 255, 0.32), transparent 46%),
+              var(--seu-bg);
+}
+[data-incognito="true"] .gl-shell {
+  background: radial-gradient(circle at 20% 0%, rgba(255, 79, 163, 0.42), transparent 50%),
+              var(--seu-incognito-bg);
+}
+.gl-card {
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 18px;
+  padding: 7px 10px;
+  display: flex; flex-direction: column; gap: 7px;
+  backdrop-filter: blur(22px);
+  box-shadow: 0 8px 24px rgba(8, 2, 30, 0.28);
+}
+.gl-row-top, .gl-row-nav { display: flex; align-items: center; gap: 7px; }
+.gl-groups { display: flex; gap: 5px; flex-shrink: 0; }
+.gl-group-chip {
+  height: 28px; padding: 0 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.4);
+  color: #160B33; font-weight: 700; font-size: 11px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.gl-tabs {
+  display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+.gl-tabs::-webkit-scrollbar { display: none; }
+.gl-tab {
+  height: 34px; max-width: 210px; min-width: 92px; padding: 0 10px 0 12px;
+  border-radius: 12px; border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06); color: #FFFFFF;
+  font-size: 13px; font-weight: 400; display: inline-flex; align-items: center; gap: 7px;
+  cursor: pointer; flex-shrink: 0; transition: background 0.14s ease;
+}
+.gl-tab:hover { background: rgba(255,255,255,0.14); }
+.gl-tab[data-state~="active"] {
+  background: rgba(255,255,255,0.24); border-color: rgba(255,255,255,0.52); font-weight: 600;
+}
+.gl-tab[data-state~="sleeping"] { opacity: 0.62; border-style: dashed; }
+.gl-tab[data-state~="pinned"] { min-width: 42px; max-width: 46px; justify-content: center; padding: 0; }
+.gl-tab[data-state~="pinned"] .gl-tab-close, .gl-tab[data-state~="pinned"] .gl-tab-title { display: none; }
+.gl-tab-icon { font-size: 12px; color: #3EC9FF; flex-shrink: 0; }
+.gl-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-tab-zzz { font-size: 11px; color: #FFD6EC; opacity: 0.9; }
+.gl-tab-close {
+  width: 20px; height: 20px; border-radius: 50%; border: none; background: transparent;
+  color: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+}
+.gl-tab-close:hover { background: rgba(255, 79, 163, 0.45); }
+.gl-icon-btn, .gl-round-btn {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.12); color: #FFFFFF; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px;
+}
+.gl-icon-btn { border-radius: 12px; }
+.gl-icon-btn:hover, .gl-round-btn:hover:not(:disabled) { background: rgba(255,255,255,0.24); }
+.gl-round-btn:disabled { opacity: 0.4; cursor: default; }
+.gl-drag { flex: 1 1 28px; min-width: 28px; height: 34px; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; }
+.gl-incog { padding: 3px 9px; border-radius: 12px; background: rgba(255, 79, 163, 0.3); border: 1px solid #FF4FA3; font-size: 11px; font-weight: 700; }
+.gl-win-btns { display: flex; gap: 5px; flex-shrink: 0; }
+.gl-win-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.24);
+  background: rgba(255,255,255,0.10); color: #FFFFFF; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+}
+.gl-win-btn:hover { background: rgba(255,255,255,0.25); }
+.gl-win-close:hover { background: #FF4FA3; border-color: #FF4FA3; }
+.gl-omnibox {
+  flex: 1 1 260px; min-width: 0; height: 36px; padding: 0 14px; border-radius: 18px;
+  background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.28);
+  display: flex; align-items: center; gap: 9px;
+}
+.gl-omnibox:focus-within { border-color: #3EC9FF; background: rgba(255,255,255,0.20); }
+.gl-omni-ico { font-size: 13px; color: rgba(255,255,255,0.72); }
+.gl-url-input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  color: #FFFFFF; font-family: var(--seu-font-body); font-size: 14px; user-select: text;
+}
+.gl-url-input::placeholder { color: rgba(255,255,255,0.68); }
+.gl-star-btn {
+  border: none; background: transparent; color: #FFFFFF; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+}
+.gl-star-btn:hover { background: rgba(255,255,255,0.2); }
+.gl-mode-switch {
+  display: inline-flex; align-items: center; padding: 2px; gap: 2px; border-radius: 18px;
+  background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.24); flex-shrink: 0;
+}
+.gl-mode-btn {
+  width: 30px; height: 28px; border-radius: 14px; border: none; background: transparent;
+  color: rgba(255,255,255,0.8); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+[data-mode="browser"] .gl-mode-btn[data-mode="browser"],
+[data-mode="split"] .gl-mode-btn[data-mode="split"],
+[data-mode="studio"] .gl-mode-btn[data-mode="studio"] {
+  background: #FFFFFF; color: #160B33;
+}
+.gl-pill {
+  height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.16); color: #FFFFFF; font-family: var(--seu-font-body);
+  font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; flex-shrink: 0;
+}
+.gl-pill:hover { background: rgba(255,255,255,0.26); }
+.gl-pill-blk i { color: #3EC9FF; }

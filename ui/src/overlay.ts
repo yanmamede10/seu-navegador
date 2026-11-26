@@ -106,7 +106,17 @@ function navigateMenuUrl(url: string): void {
     const snap = await callBridge<WindowSnapshot>("windows.getSnapshot", {
       window_id: windowId,
     });
-    if (snap?.active_tab_id) {
+    if (!snap) return;
+    const activeTab = snap.tabs.find((tab) => tab.id === snap.active_tab_id) ?? null;
+    if (activeTab?.url.startsWith("seu://studio/")) {
+      if (snap.split_tab_id) {
+        await callBridge("tabs.navigate", { tab_id: snap.split_tab_id, input: url });
+      } else {
+        await callBridge("tabs.create", { window_id: windowId, url, activate: true });
+      }
+      return;
+    }
+    if (snap.active_tab_id) {
       await callBridge("tabs.navigate", {
         tab_id: snap.active_tab_id,
         input: url,
@@ -193,6 +203,10 @@ function renderMenu(): void {
 
   addActionButton("fa-solid fa-download", t("menu.downloads"), () => {
     navigateMenuUrl("seu://downloads/");
+  });
+
+  addActionButton("fa-solid fa-palette", l("Galeria de temas", "Theme gallery"), () => {
+    navigateMenuUrl("seu://themes/");
   });
 
   addActionButton("fa-solid fa-sliders", t("menu.settings"), () => {

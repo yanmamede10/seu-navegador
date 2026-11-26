@@ -1,0 +1,57 @@
+<div class="br-shell" data-seu-root="shell">
+  <div class="br-row">
+    <div class="br-groups" data-seu-container="tabGroups">
+      <template data-seu-repeat="tabGroups">
+        <button type="button" class="br-group-chip" data-seu-action="tabGroups.toggleCollapse" data-seu-style-bg="$item.color">
+          <span data-seu-bind="$item.title">GRP</span>
+        </button>
+      </template>
+    </div>
+    <div class="br-tabs" data-seu-container="tabs">
+      <template data-seu-repeat="tabs">
+        <div class="br-tab" data-seu-action="tabs.activate" data-seu-context-action="tabs.pin" data-seu-middle-action="tabs.close">
+          <span class="br-tab-title" data-seu-bind="$item.title">INÍCIO</span>
+          <span class="br-tab-zzz" data-seu-if="$item.isSleeping">(zzz)</span>
+          <button type="button" class="br-tab-close" data-seu-action="tabs.close" data-seu-title-t="tabs.close" aria-label="Fechar aba">x</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="br-btn" data-seu-action="tabs.create" data-seu-title-t="tabs.new" aria-label="Nova aba">+</button>
+    <div class="br-drag" data-seu-drag-region>
+      <span class="br-incog" data-seu-if="window.incognito" data-seu-t="app.incognito">[ANÔNIMO]</span>
+    </div>
+    <div class="br-win-btns">
+      <button type="button" class="br-win-btn" data-seu-action="windows.minimize" data-seu-title-t="window.minimize" aria-label="Minimizar">_</button>
+      <button type="button" class="br-win-btn" data-seu-action="windows.maximize" data-seu-title-t="window.maximize" aria-label="Maximizar">[]</button>
+      <button type="button" class="br-win-btn br-win-close" data-seu-action="windows.close" data-seu-title-t="window.close" aria-label="Fechar">X</button>
+    </div>
+  </div>
+
+  <div class="br-row br-nav">
+    <button type="button" class="br-btn" data-seu-action="tabs.back" data-seu-disabled-unless="activeTab.can_go_back" data-seu-title-t="nav.back" aria-label="Voltar">&lt;-</button>
+    <button type="button" class="br-btn" data-seu-action="tabs.forward" data-seu-disabled-unless="activeTab.can_go_forward" data-seu-title-t="nav.forward" aria-label="Avançar">-&gt;</button>
+    <button type="button" class="br-btn" data-seu-action="tabs.reload" data-seu-title-t="nav.reload" aria-label="Recarregar">R</button>
+
+    <form class="br-omnibox" data-seu-submit="omnibox">
+      <span class="br-url-lbl">URL:</span>
+      <input class="br-url-input" type="text" autocomplete="off" spellcheck="false" data-seu-input="omnibox" data-seu-placeholder-t="nav.omniboxPlaceholder" aria-label="Endereço" />
+      <button type="button" class="br-star-btn" data-seu-action="bookmarks.toggle" data-seu-title-t="nav.bookmark" aria-label="Favoritar">
+        <i data-seu-icon="activeTab.bookmarkIcon" aria-hidden="true"></i>
+      </button>
+    </form>
+
+    <div class="br-mode-switch" role="group" aria-label="Modo">
+      <button type="button" class="br-mode-btn" data-mode="browser" data-seu-action="studio.setMode" data-seu-param="browser" data-seu-title-t="nav.modeBrowser">WEB</button>
+      <button type="button" class="br-mode-btn" data-mode="split" data-seu-action="studio.setMode" data-seu-param="split" data-seu-title-t="nav.modeSplit">SPLIT</button>
+      <button type="button" class="br-mode-btn" data-mode="studio" data-seu-action="studio.setMode" data-seu-param="studio" data-seu-title-t="nav.modeStudio">IDE</button>
+    </div>
+
+    <button type="button" class="br-pill" data-seu-action="overlay.toggleMemory" data-seu-title-t="badge.ram">
+      <span data-seu-bind="memory.badgeText">RAM -- MB</span>
+    </button>
+    <button type="button" class="br-pill" data-seu-action="overlay.toggleBlocker" data-seu-title-t="badge.blocker">
+      BLK:<span data-seu-bind="blocker.totalBlocked">0</span>
+    </button>
+    <button type="button" class="br-btn br-menu" data-seu-action="overlay.toggleMenu" data-seu-title-t="nav.menu" aria-label="Menu">MENU</button>
+  </div>
+</div>

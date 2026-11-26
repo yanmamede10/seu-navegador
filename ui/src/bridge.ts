@@ -255,6 +255,16 @@ export interface DataSummaryPayload {
   history: HistoryItem[];
 }
 
+export interface ThemePreview {
+  bg: string;
+  surface: string;
+  surface2: string;
+  text: string;
+  accent: string;
+  border: string;
+  radius: string;
+}
+
 export interface ThemeSummary {
   id: string;
   name: string;
@@ -262,6 +272,7 @@ export interface ThemeSummary {
   author: string;
   description: string;
   builtin: boolean;
+  preview?: ThemePreview;
 }
 
 export interface LoadedTheme {

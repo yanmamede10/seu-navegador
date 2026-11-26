@@ -412,6 +412,7 @@ fn decorate_internal_url(url: &str, window_id: WindowId, tab_id: TabId) -> Strin
         "seu://history" => format!("seu://history/?win={window_id}&tab={tab_id}"),
         "seu://bookmarks" => format!("seu://bookmarks/?win={window_id}&tab={tab_id}"),
         "seu://downloads" => format!("seu://downloads/?win={window_id}&tab={tab_id}"),
+        "seu://themes" => format!("seu://themes/?win={window_id}&tab={tab_id}"),
         "seu://studio" => format!("seu://studio/?win={window_id}&tab={tab_id}"),
         _ => url.to_string(),
     }
@@ -424,6 +425,7 @@ fn normalize_internal_display_url(raw_url: &str) -> String {
         "seu://history/",
         "seu://bookmarks/",
         "seu://downloads/",
+        "seu://themes/",
         "seu://studio/",
     ] {
         if raw_url.starts_with(prefix) {

@@ -72,6 +72,7 @@ pub fn resolve_seu_url(raw_url: &str) -> ResolvedAsset {
             "history" => "history.html",
             "bookmarks" => "bookmarks.html",
             "downloads" => "downloads.html",
+            "themes" => "themes.html",
             "studio" => "studio.html",
             _ => {
                 return placeholder_internal_page(&host);
@@ -158,6 +159,10 @@ mod tests {
 
         let newtab = resolve_seu_url("seu://newtab/");
         assert_eq!(newtab.status_code, 200);
+
+        let themes = resolve_seu_url("seu://themes/?win=1");
+        assert_eq!(themes.status_code, 200);
+        assert_eq!(themes.mime_type, "text/html");
 
         let bad = resolve_seu_url("seu://shell/../../secret");
         assert_eq!(bad.status_code, 404);

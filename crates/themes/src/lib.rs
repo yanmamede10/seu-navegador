@@ -103,6 +103,17 @@ pub struct ThemeTokens {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemePreview {
+    pub bg: String,
+    pub surface: String,
+    pub surface2: String,
+    pub text: String,
+    pub accent: String,
+    pub border: String,
+    pub radius: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ThemeSummary {
     pub id: String,
     pub name: String,
@@ -110,6 +121,7 @@ pub struct ThemeSummary {
     pub author: String,
     pub description: String,
     pub builtin: bool,
+    pub preview: ThemePreview,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,6 +257,18 @@ pub struct ThemeRegistry {
     themes: BTreeMap<String, LoadedTheme>,
 }
 
+const OFFICIAL_THEME_ORDER: &[&str] = &[
+    "y2k-maximal",
+    "glassmorphism",
+    "neumorphism",
+    "editorial",
+    "brutalist",
+    "neobrutalist",
+    "retro-70s",
+    "y2k-classic",
+    "maximal",
+];
+
 impl ThemeRegistry {
     pub fn load_builtin() -> Result<Self, ThemeError> {
         let mut themes = BTreeMap::new();
@@ -256,7 +280,8 @@ impl ThemeRegistry {
     }
 
     pub fn list_summaries(&self) -> Vec<ThemeSummary> {
-        self.themes
+        let mut list: Vec<ThemeSummary> = self
+            .themes
             .values()
             .map(|t| ThemeSummary {
                 id: t.manifest.id.clone(),
@@ -265,8 +290,26 @@ impl ThemeRegistry {
                 author: t.manifest.author.clone(),
                 description: t.manifest.description.clone(),
                 builtin: t.builtin,
+                preview: ThemePreview {
+                    bg: t.tokens.semantic.bg.clone(),
+                    surface: t.tokens.semantic.surface.clone(),
+                    surface2: t.tokens.semantic.surface2.clone(),
+                    text: t.tokens.semantic.text.clone(),
+                    accent: t.tokens.semantic.accent.clone(),
+                    border: t.tokens.semantic.border.clone(),
+                    radius: t.tokens.semantic.radius.clone(),
+                },
             })
-            .collect()
+            .collect();
+
+        list.sort_by_key(|s| {
+            let rank = OFFICIAL_THEME_ORDER
+                .iter()
+                .position(|&id| id == s.id)
+                .unwrap_or(OFFICIAL_THEME_ORDER.len());
+            (rank, s.id.clone())
+        });
+        list
     }
 
     pub fn get(&self, id: &str) -> Option<&LoadedTheme> {
@@ -358,18 +401,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn loads_and_validates_builtin_y2k_maximal_theme() {
+    fn loads_and_validates_all_nine_official_builtin_themes() {
         let registry = ThemeRegistry::load_builtin();
         assert!(
             registry.is_ok(),
             "failed to load builtin themes: {registry:?}"
         );
         if let Ok(reg) = registry {
+            let summaries = reg.list_summaries();
+            assert_eq!(summaries.len(), 9, "expected all 9 official themes");
+            let ids: Vec<&str> = summaries.iter().map(|s| s.id.as_str()).collect();
+            assert_eq!(ids, OFFICIAL_THEME_ORDER);
+
+            for expected_id in OFFICIAL_THEME_ORDER {
+                let loaded = reg.get(expected_id);
+                assert!(loaded.is_some(), "missing official theme: {expected_id}");
+                if let Some(theme) = loaded {
+                    assert_eq!(theme.manifest.id, *expected_id);
+                    assert!(theme.shell_html.is_some());
+                    assert!(!theme.shell_css.is_empty());
+                    assert!(!theme.newtab_html.is_empty());
+                    assert!(!theme.newtab_css.is_empty());
+                    assert!(theme.tokens_css.contains("--seu-bg:"));
+                    assert!(theme.tokens_css.contains("--seu-accent:"));
+                }
+            }
+
             let y2k = reg.get(DEFAULT_THEME_ID);
-            assert!(y2k.is_some());
             if let Some(theme) = y2k {
-                assert_eq!(theme.manifest.id, "y2k-maximal");
-                assert!(theme.shell_html.is_some());
                 assert!(theme.tokens_css.contains("--seu-accent: #FF2E93;"));
                 assert!(theme
                     .newtab_css
@@ -381,6 +440,12 @@ mod tests {
                 "assets/fonts/rubik-mono-one-400-latin.woff2",
             );
             assert!(font.map(|b| !b.is_empty()).unwrap_or(false));
+
+            let outfit = ThemeRegistry::resolve_builtin_asset(
+                "glassmorphism",
+                "assets/fonts/outfit-400-latin.woff2",
+            );
+            assert!(outfit.map(|b| !b.is_empty()).unwrap_or(false));
         }
     }
 

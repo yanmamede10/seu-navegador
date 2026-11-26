@@ -15,6 +15,7 @@ export default defineConfig({
         history: resolve(__dirname, "history.html"),
         bookmarks: resolve(__dirname, "bookmarks.html"),
         downloads: resolve(__dirname, "downloads.html"),
+        themes: resolve(__dirname, "themes.html"),
         studio: resolve(__dirname, "studio.html"),
       },
     },
