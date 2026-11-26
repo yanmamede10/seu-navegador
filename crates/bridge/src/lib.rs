@@ -2131,6 +2131,7 @@ mod tests {
                 &mut blocker,
                 &mut studio,
                 None,
+                None,
             ),
             Err(BridgeError::InvalidJson(_))
         ));
@@ -2143,6 +2144,7 @@ mod tests {
                 None,
                 &mut blocker,
                 &mut studio,
+                None,
                 None,
             ),
             Err(BridgeError::InvalidArgument(_))
