@@ -318,7 +318,7 @@ pub fn import_theme_package(
 ) -> Result<LoadedTheme, ThemeError> {
     let reader = Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(reader).map_err(|e| ThemeError::Io(e.to_string()))?;
-    if archive.len() == 0 || archive.len() > MAX_PACKAGE_FILES {
+    if archive.is_empty() || archive.len() > MAX_PACKAGE_FILES {
         return Err(ThemeError::Io(
             "invalid .seutheme archive file count".to_string(),
         ));
@@ -328,7 +328,7 @@ pub fn import_theme_package(
     let mut total_size: u64 = 0;
 
     for i in 0..archive.len() {
-        let mut file = archive
+        let file = archive
             .by_index(i)
             .map_err(|e| ThemeError::Io(e.to_string()))?;
         if file.is_dir() {
@@ -529,7 +529,7 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, ThemeError> {
         return Err(ThemeError::Io("invalid base64 length".to_string()));
     }
     let mut out = Vec::with_capacity((vals.len() / 4) * 3);
-    for chunk in vals.chunks_exact(4) {
+    for chunk in vals.as_chunks::<4>().0 {
         let a = u32::from(chunk[0]);
         let b = u32::from(chunk[1]);
         if a == 64 || b == 64 {
