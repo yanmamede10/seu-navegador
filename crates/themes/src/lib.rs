@@ -5,12 +5,14 @@
 //! and validation layer can be shared with Android via UniFFI (SPEC §6.1, §12.1).
 
 pub mod sanitize;
+pub mod site_skins;
 pub mod user_themes;
 pub mod wcag;
 
 use include_dir::{include_dir, Dir};
 use sanitize::{validate_and_rewrite_css, validate_and_sanitize_html};
 use serde::{Deserialize, Serialize};
+use site_skins::{validate_site_js, validate_site_pattern, SiteSkinAsset};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -132,6 +134,10 @@ pub struct ThemeSummary {
     pub description: String,
     pub builtin: bool,
     pub preview: ThemePreview,
+    #[serde(default)]
+    pub site_skin_patterns: Vec<String>,
+    #[serde(default)]
+    pub has_site_scripts: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -143,6 +149,8 @@ pub struct LoadedTheme {
     pub shell_css: String,
     pub newtab_html: String,
     pub newtab_css: String,
+    #[serde(default)]
+    pub site_skins: Vec<SiteSkinAsset>,
     pub base_url: String,
     pub builtin: bool,
 }
@@ -400,6 +408,8 @@ impl ThemeRegistry {
                     border: t.tokens.semantic.border.clone(),
                     radius: t.tokens.semantic.radius.clone(),
                 },
+                site_skin_patterns: t.site_skins.iter().map(|s| s.pattern.clone()).collect(),
+                has_site_scripts: t.site_skins.iter().any(|s| !s.js.trim().is_empty()),
             })
             .collect();
 
@@ -437,6 +447,55 @@ impl ThemeRegistry {
             .get_file(&full)
             .map(|file| file.contents())
     }
+}
+
+pub(crate) fn load_site_skins_with<F>(
+    manifest: &ThemeManifest,
+    read_rel: &F,
+) -> Result<Vec<SiteSkinAsset>, ThemeError>
+where
+    F: Fn(&str) -> Result<String, ThemeError>,
+{
+    let mut out = Vec::new();
+    for (raw_pattern, files) in &manifest.sites {
+        let pattern = validate_site_pattern(raw_pattern)?;
+        let mut css_files = Vec::new();
+        let mut js_files = Vec::new();
+        let mut css_chunks = Vec::new();
+        let mut js_chunks = Vec::new();
+
+        for rel in files {
+            let trimmed = rel.trim();
+            if trimmed.is_empty() || trimmed.contains("..") {
+                return Err(ThemeError::MissingFile(rel.clone()));
+            }
+            let lower = trimmed.to_ascii_lowercase();
+            if lower.ends_with(".css") {
+                let raw_css = read_rel(trimmed)?;
+                let safe_css = validate_and_rewrite_css(&raw_css, &manifest.id)?;
+                css_files.push(trimmed.to_string());
+                css_chunks.push(safe_css);
+            } else if lower.ends_with(".js") {
+                let raw_js = read_rel(trimmed)?;
+                let safe_js = validate_site_js(&raw_js, trimmed)?;
+                js_files.push(trimmed.to_string());
+                js_chunks.push(safe_js);
+            } else {
+                return Err(ThemeError::InvalidToken(format!(
+                    "unsupported site skin asset extension: {trimmed}"
+                )));
+            }
+        }
+
+        out.push(SiteSkinAsset {
+            pattern,
+            css_files,
+            js_files,
+            css: css_chunks.join("\n"),
+            js: js_chunks.join("\n;\n"),
+        });
+    }
+    Ok(out)
 }
 
 fn load_embedded_theme_dir(dir: &Dir<'_>) -> Result<LoadedTheme, ThemeError> {
@@ -482,6 +541,7 @@ fn load_embedded_theme_dir(dir: &Dir<'_>) -> Result<LoadedTheme, ThemeError> {
     let newtab_css_raw = read_str(&manifest.entry.newtab_css)?;
     let newtab_css = validate_and_rewrite_css(&newtab_css_raw, &manifest.id)?;
 
+    let site_skins = load_site_skins_with(&manifest, &read_str)?;
     let base_url = format!("seu://theme/{}/", manifest.id);
 
     Ok(LoadedTheme {
@@ -492,6 +552,7 @@ fn load_embedded_theme_dir(dir: &Dir<'_>) -> Result<LoadedTheme, ThemeError> {
         shell_css,
         newtab_html,
         newtab_css,
+        site_skins,
         base_url,
         builtin: true,
     })
@@ -534,6 +595,11 @@ mod tests {
                 assert!(theme
                     .newtab_css
                     .contains("seu://theme/y2k-maximal/assets/fonts/"));
+                assert!(theme.manifest.permissions.site_scripts);
+                assert_eq!(theme.site_skins.len(), 1);
+                assert_eq!(theme.site_skins[0].pattern, "youtube.com");
+                assert!(theme.site_skins[0].css.contains("data-seu-site-skin"));
+                assert!(theme.site_skins[0].js.contains("seu-yt-y2k-bar"));
             }
 
             let font = ThemeRegistry::resolve_builtin_asset(

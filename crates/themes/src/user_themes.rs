@@ -3,9 +3,9 @@
 
 use crate::sanitize::{validate_and_rewrite_css, validate_and_sanitize_html};
 use crate::{
-    tokens_to_css, validate_manifest, validate_tokens, LoadedTheme, ThemeEntrypoints, ThemeError,
-    ThemeManifest, ThemePermissions, ThemeRegistry, ThemeTokens, BUILTIN_THEMES_DIR,
-    DEFAULT_THEME_ID,
+    load_site_skins_with, tokens_to_css, validate_manifest, validate_tokens, LoadedTheme,
+    ThemeEntrypoints, ThemeError, ThemeManifest, ThemePermissions, ThemeRegistry, ThemeTokens,
+    BUILTIN_THEMES_DIR, DEFAULT_THEME_ID,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -109,6 +109,7 @@ pub fn load_disk_theme_dir(dir: &Path) -> Result<LoadedTheme, ThemeError> {
     let newtab_css_raw = read_rel(&manifest.entry.newtab_css)?;
     let newtab_css = validate_and_rewrite_css(&newtab_css_raw, &manifest.id)?;
 
+    let site_skins = load_site_skins_with(&manifest, &read_rel)?;
     let base_url = format!("seu://theme/{}/", manifest.id);
 
     Ok(LoadedTheme {
@@ -119,6 +120,7 @@ pub fn load_disk_theme_dir(dir: &Path) -> Result<LoadedTheme, ThemeError> {
         shell_css,
         newtab_html,
         newtab_css,
+        site_skins,
         base_url,
         builtin: false,
     })
@@ -156,6 +158,13 @@ pub fn save_user_theme(
         seed_theme_files_from_base(registry, user_dir, base_id, &dest)?;
     }
 
+    // Preserve existing `sites` declarations if updating an existing custom theme folder.
+    let existing_sites = fs::read_to_string(dest.join("manifest.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<ThemeManifest>(&raw).ok())
+        .map(|m| m.sites)
+        .unwrap_or_default();
+
     let manifest = ThemeManifest {
         id: id.clone(),
         name: if input.name.trim().is_empty() {
@@ -182,7 +191,7 @@ pub fn save_user_theme(
             newtab_html: "newtab.html".to_string(),
             newtab_css: "newtab.css".to_string(),
         },
-        sites: BTreeMap::new(),
+        sites: existing_sites,
         permissions: ThemePermissions {
             site_scripts: false,
         },
@@ -386,6 +395,9 @@ pub fn import_theme_package(
     }
     validate_and_sanitize_html(get_utf8(&manifest.entry.newtab_html)?)?;
     validate_and_rewrite_css(get_utf8(&manifest.entry.newtab_css)?, &manifest.id)?;
+    let get_owned =
+        |rel: &str| -> Result<String, ThemeError> { get_utf8(rel).map(|s| s.to_string()) };
+    load_site_skins_with(&manifest, &get_owned)?;
 
     let dest = user_dir.join(&manifest.id);
     if dest.exists() {

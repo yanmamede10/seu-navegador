@@ -33,6 +33,10 @@ use seu_studio::{
     runner::{TerminalNotifyFn, TerminalSnapshot},
     StudioService,
 };
+use seu_themes::site_skins::{
+    build_isolated_site_js_wrapper, build_site_skin_clear_js, build_site_skin_css_injection_js,
+    resolve_site_skin,
+};
 use seu_themes::ThemeRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -1008,6 +1012,88 @@ fn inject_devtools_theme_css(devtools: &Browser, tokens_css: &str) {
     }
 }
 
+fn apply_site_skin_to_frame(
+    state: &Arc<Mutex<SharedState>>,
+    frame: &Frame,
+    url: &str,
+    inject_js: bool,
+) {
+    if is_privileged_origin(url) {
+        return;
+    }
+    let is_http = url
+        .get(..8)
+        .map(|s| s.eq_ignore_ascii_case("https://"))
+        .unwrap_or(false)
+        || url
+            .get(..7)
+            .map(|s| s.eq_ignore_ascii_case("http://"))
+            .unwrap_or(false);
+    if !is_http {
+        return;
+    }
+
+    let resolved = state.lock().ok().and_then(|g| {
+        let active = g.themes.get(&g.core.settings.active_theme_id)?;
+        resolve_site_skin(
+            active,
+            url,
+            g.core.settings.site_skins_enabled,
+            &g.core.settings.allowed_site_script_themes,
+        )
+    });
+
+    match resolved {
+        Some(skin) => {
+            if !skin.css.is_empty() {
+                if let Some(css_js) = build_site_skin_css_injection_js(&skin.theme_id, &skin.css) {
+                    let code = CefString::from(css_js.as_str());
+                    let script_url = CefString::from("seu://internal/site-skin-css");
+                    frame.execute_java_script(Some(&code), Some(&script_url), 0);
+                }
+            }
+            if inject_js {
+                if let Some(raw_js) = skin.js.as_deref() {
+                    if let Some(wrapped) =
+                        build_isolated_site_js_wrapper(&skin.theme_id, url, raw_js)
+                    {
+                        let code = CefString::from(wrapped.as_str());
+                        let script_url = CefString::from("seu://internal/site-skin-js");
+                        frame.execute_java_script(Some(&code), Some(&script_url), 0);
+                    }
+                } else {
+                    let teardown_js = "(function(){try{if(window.__seuSkinLoadedTheme){window.__seuSkinLoadedTheme=null;window.dispatchEvent(new CustomEvent('seu:skin-disable'));}}catch(_){}})();";
+                    let code = CefString::from(teardown_js);
+                    let script_url = CefString::from("seu://internal/site-skin-js-stop");
+                    frame.execute_java_script(Some(&code), Some(&script_url), 0);
+                }
+            }
+        }
+        None => {
+            if inject_js {
+                let clear_js = build_site_skin_clear_js();
+                let code = CefString::from(clear_js);
+                let script_url = CefString::from("seu://internal/site-skin-clear");
+                frame.execute_java_script(Some(&code), Some(&script_url), 0);
+            }
+        }
+    }
+}
+
+fn refresh_site_skins_all(state: &Arc<Mutex<SharedState>>) {
+    let tab_browsers: Vec<Browser> = state
+        .lock()
+        .ok()
+        .map(|g| g.tab_browsers.values().cloned().collect())
+        .unwrap_or_default();
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            apply_site_skin_to_frame(state, &frame, &u, true);
+        }
+    }
+}
+
 fn broadcast_theme_all(state: &Arc<Mutex<SharedState>>) {
     let (theme, chrome_views, devtools_views, tab_browsers) = {
         let Ok(guard) = state.lock() else {
@@ -1049,6 +1135,8 @@ fn broadcast_theme_all(state: &Arc<Mutex<SharedState>>) {
             let u = CefString::from(&frame.url()).to_string();
             if is_privileged_origin(&u) {
                 push_js_event(&b, &payload);
+            } else {
+                apply_site_skin_to_frame(state, &frame, &u, true);
             }
         }
     }
@@ -1844,6 +1932,7 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::BroadcastState { window_id } => broadcast_window_state(state, window_id),
             HostEffect::BroadcastSettings => broadcast_settings_all(state),
             HostEffect::BroadcastTheme => broadcast_theme_all(state),
+            HostEffect::RefreshSiteSkins => refresh_site_skins_all(state),
             HostEffect::BroadcastMemory => broadcast_memory_all(state),
             HostEffect::BroadcastBlocker => broadcast_blocker_all(state),
             HostEffect::UpdateBlockerLists => spawn_blocker_list_updater(state.clone(), true),
@@ -2478,6 +2567,9 @@ wrap_display_handler! {
                     }
                 }
             }
+            if let Some(f) = frame.as_deref() {
+                apply_site_skin_to_frame(&self.state, f, &raw_url, true);
+            }
             broadcast_window_state(&self.state, window_id);
         }
 
@@ -2645,6 +2737,25 @@ wrap_load_handler! {
     }
 
     impl LoadHandler {
+        fn on_load_start(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _transition_type: TransitionType,
+        ) {
+            let ViewKind::Tab { .. } = self.kind else {
+                return;
+            };
+            let Some(frame) = frame else {
+                return;
+            };
+            if frame.is_main() == 0 {
+                return;
+            }
+            let url = CefString::from(&frame.url()).to_string();
+            apply_site_skin_to_frame(&self.state, frame, &url, false);
+        }
+
         fn on_loading_state_change(
             &self,
             _browser: Option<&mut Browser>,
@@ -2755,6 +2866,9 @@ wrap_load_handler! {
                     frame.execute_java_script(Some(&code), Some(&script_url), 0);
                 }
             }
+
+            // Apply per-site theme skin CSS (idempotent) + isolated JS & SPA hooks (SPEC §7).
+            apply_site_skin_to_frame(&self.state, frame, &url, true);
         }
     }
 }

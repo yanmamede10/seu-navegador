@@ -21,6 +21,8 @@ type FilterKind = "all" | "dark" | "light" | "custom";
 let locale: "pt-br" | "en" = "pt-br";
 let themes: ThemeSummary[] = [];
 let activeThemeId = "y2k-maximal";
+let allowedScriptThemes: string[] = [];
+let pendingOptInThemeId: string | null = null;
 let filter: FilterKind = "all";
 let searchQuery = "";
 let bannerText = "";
@@ -418,6 +420,109 @@ function renderCardsOnly(grid: HTMLElement): void {
     desc.textContent = item.description;
     body.appendChild(desc);
 
+    const patterns = item.site_skin_patterns ?? [];
+    if (patterns.length > 0) {
+      const skinBar = document.createElement("div");
+      skinBar.style.display = "flex";
+      skinBar.style.flexWrap = "wrap";
+      skinBar.style.alignItems = "center";
+      skinBar.style.gap = "6px";
+      skinBar.style.marginBottom = "8px";
+
+      const skinPill = document.createElement("span");
+      skinPill.className = "tg-tag";
+      skinPill.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> ${patterns.join(", ")}`;
+      skinBar.appendChild(skinPill);
+
+      if (!item.builtin && item.has_site_scripts) {
+        const jsAllowed = allowedScriptThemes.includes(item.id);
+        if (jsAllowed) {
+          const revokeBtn = document.createElement("button");
+          revokeBtn.type = "button";
+          revokeBtn.className = "tg-apply-btn";
+          revokeBtn.style.fontSize = "11px";
+          revokeBtn.innerHTML = `<i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span>${l("JS ativo (Revogar)", "JS active (Revoke)")}</span>`;
+          revokeBtn.addEventListener("click", () => {
+            pendingOptInThemeId = null;
+            void callBridge<CoreSettings>("themes.setSiteScriptsAllowed", {
+              id: item.id,
+              allowed: false,
+            }).then((s) => {
+              if (s) allowedScriptThemes = s.allowed_site_script_themes ?? [];
+              bannerText = l(
+                `JS de sites desativado para "${item.name}".`,
+                `Site JS disabled for "${item.name}".`,
+              );
+              render();
+            });
+          });
+          skinBar.appendChild(revokeBtn);
+        } else if (pendingOptInThemeId === item.id) {
+          const warnBox = document.createElement("div");
+          warnBox.style.width = "100%";
+          warnBox.style.padding = "8px";
+          warnBox.style.borderRadius = "8px";
+          warnBox.style.border = "1px solid var(--seu-danger)";
+          warnBox.style.fontSize = "11px";
+          warnBox.style.display = "flex";
+          warnBox.style.flexDirection = "column";
+          warnBox.style.gap = "6px";
+          const warnText = document.createElement("span");
+          warnText.textContent = l(
+            `Aviso: este tema importado contém JS para ${patterns.join(", ")}. Só ative se confiar no autor (nunca acessa window.seu).`,
+            `Warning: this imported theme includes JS for ${patterns.join(", ")}. Only enable if you trust the author (never accesses window.seu).`,
+          );
+          const warnBtns = document.createElement("div");
+          warnBtns.style.display = "flex";
+          warnBtns.style.gap = "6px";
+          const okBtn = document.createElement("button");
+          okBtn.type = "button";
+          okBtn.className = "tg-apply-btn active";
+          okBtn.textContent = l("Confirmar e permitir JS", "Confirm & allow JS");
+          okBtn.addEventListener("click", () => {
+            pendingOptInThemeId = null;
+            void callBridge<CoreSettings>("themes.setSiteScriptsAllowed", {
+              id: item.id,
+              allowed: true,
+            }).then((s) => {
+              if (s) allowedScriptThemes = s.allowed_site_script_themes ?? [];
+              bannerText = l(
+                `JS de sites permitido para "${item.name}".`,
+                `Site JS allowed for "${item.name}".`,
+              );
+              render();
+            });
+          });
+          const cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.className = "tg-apply-btn";
+          cancelBtn.textContent = l("Cancelar", "Cancel");
+          cancelBtn.addEventListener("click", () => {
+            pendingOptInThemeId = null;
+            render();
+          });
+          warnBtns.appendChild(okBtn);
+          warnBtns.appendChild(cancelBtn);
+          warnBox.appendChild(warnText);
+          warnBox.appendChild(warnBtns);
+          skinBar.appendChild(warnBox);
+        } else {
+          const allowBtn = document.createElement("button");
+          allowBtn.type = "button";
+          allowBtn.className = "tg-apply-btn";
+          allowBtn.style.fontSize = "11px";
+          allowBtn.innerHTML = `<i class="fa-solid fa-lock" aria-hidden="true"></i><span>${l("JS bloqueado · Permitir", "JS blocked · Allow")}</span>`;
+          allowBtn.addEventListener("click", () => {
+            pendingOptInThemeId = item.id;
+            render();
+          });
+          skinBar.appendChild(allowBtn);
+        }
+      }
+
+      body.appendChild(skinBar);
+    }
+
     const foot = document.createElement("div");
     foot.className = "tg-card-foot";
 
@@ -497,6 +602,7 @@ onBridgeEvent((event) => {
     render();
   } else if (event.type === "settings") {
     locale = event.settings.locale;
+    allowedScriptThemes = event.settings.allowed_site_script_themes ?? [];
     render();
   }
 });
@@ -507,7 +613,10 @@ async function bootstrap(): Promise<void> {
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
     callBridge<ThemeSummary[]>("themes.list").catch(() => []),
   ]);
-  if (settings) locale = settings.locale;
+  if (settings) {
+    locale = settings.locale;
+    allowedScriptThemes = settings.allowed_site_script_themes ?? [];
+  }
   if (active) applyThemeTokens(active);
   if (Array.isArray(list)) themes = list;
   render();

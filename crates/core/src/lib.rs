@@ -247,6 +247,10 @@ pub struct CoreSettings {
     pub restore_session_on_startup: bool,
     #[serde(default)]
     pub studio_last_workspace: Option<String>,
+    #[serde(default = "default_true")]
+    pub site_skins_enabled: bool,
+    #[serde(default)]
+    pub allowed_site_script_themes: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -267,6 +271,8 @@ impl Default for CoreSettings {
             blocker_allowlist: Vec::new(),
             restore_session_on_startup: true,
             studio_last_workspace: None,
+            site_skins_enabled: true,
+            allowed_site_script_themes: Vec::new(),
         }
     }
 }

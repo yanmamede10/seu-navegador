@@ -80,6 +80,8 @@ export interface CoreSettings {
   blocker_enabled?: boolean;
   blocker_allowlist?: string[];
   restore_session_on_startup?: boolean;
+  site_skins_enabled?: boolean;
+  allowed_site_script_themes?: string[];
 }
 
 export interface DetectedBrowserProfile {
@@ -273,6 +275,8 @@ export interface ThemeSummary {
   description: string;
   builtin: boolean;
   preview?: ThemePreview;
+  site_skin_patterns?: string[];
+  has_site_scripts?: boolean;
 }
 
 export interface SemanticTokens {

@@ -205,6 +205,8 @@ pub enum BridgeRequest {
     ThemesGetUserDir,
     #[serde(rename = "themes.reloadUser")]
     ThemesReloadUser,
+    #[serde(rename = "themes.setSiteScriptsAllowed")]
+    ThemesSetSiteScriptsAllowed { id: String, allowed: bool },
 
     #[serde(rename = "shortcuts.set")]
     ShortcutsSet { action: String, combo: String },
@@ -295,6 +297,8 @@ pub enum BridgeRequest {
 
     #[serde(rename = "settings.setRestoreSession")]
     SettingsSetRestoreSession { enabled: bool },
+    #[serde(rename = "settings.setSiteSkinsEnabled")]
+    SettingsSetSiteSkinsEnabled { enabled: bool },
 
     #[serde(rename = "split.toggle")]
     SplitToggle {
@@ -561,6 +565,7 @@ pub enum HostEffect {
     },
     BroadcastSettings,
     BroadcastTheme,
+    RefreshSiteSkins,
     BroadcastMemory,
     BroadcastBlocker,
     UpdateBlockerLists,
@@ -1150,6 +1155,17 @@ pub fn dispatch_request(
                 .delete_user_theme(&id)
                 .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
             let mut effects = Vec::new();
+            let removed_perm = core
+                .settings
+                .allowed_site_script_themes
+                .iter()
+                .any(|t| t == &id);
+            if removed_perm {
+                core.settings
+                    .allowed_site_script_themes
+                    .retain(|t| t != &id);
+                effects.push(HostEffect::BroadcastSettings);
+            }
             if core.settings.active_theme_id == id {
                 core.settings.active_theme_id = DEFAULT_THEME_ID.to_string();
                 effects.push(HostEffect::BroadcastTheme);
@@ -1181,9 +1197,24 @@ pub fn dispatch_request(
             let imported = themes
                 .import_package(&bytes)
                 .map_err(|e| BridgeError::InvalidArgument(e.to_string()))?;
+            // Security guarantee (SPEC §7): freshly imported themes ALWAYS start with
+            // site scripts disabled until the user explicitly opts in.
+            let had_prev_perm = core
+                .settings
+                .allowed_site_script_themes
+                .iter()
+                .any(|t| t == &imported.manifest.id);
+            let mut effects = Vec::new();
+            if had_prev_perm {
+                core.settings
+                    .allowed_site_script_themes
+                    .retain(|t| t != &imported.manifest.id);
+                effects.push(HostEffect::BroadcastSettings);
+                effects.push(HostEffect::RefreshSiteSkins);
+            }
             Ok(DispatchOutput {
                 response: BridgeResponse::ThemeActive(Box::new(imported)),
-                effects: Vec::new(),
+                effects,
             })
         }
         BridgeRequest::ThemesImportFont {
@@ -1611,6 +1642,38 @@ pub fn dispatch_request(
             Ok(DispatchOutput {
                 response: BridgeResponse::Settings(core.settings.clone()),
                 effects: vec![HostEffect::BroadcastSettings],
+            })
+        }
+        BridgeRequest::SettingsSetSiteSkinsEnabled { enabled } => {
+            core.settings.site_skins_enabled = enabled;
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings, HostEffect::RefreshSiteSkins],
+            })
+        }
+        BridgeRequest::ThemesSetSiteScriptsAllowed { id, allowed } => {
+            if !themes.exists(&id) {
+                return Err(BridgeError::InvalidArgument(format!(
+                    "unknown theme id: {id}"
+                )));
+            }
+            if allowed {
+                if !core
+                    .settings
+                    .allowed_site_script_themes
+                    .iter()
+                    .any(|t| t == &id)
+                {
+                    core.settings.allowed_site_script_themes.push(id);
+                }
+            } else {
+                core.settings
+                    .allowed_site_script_themes
+                    .retain(|t| t != &id);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings, HostEffect::RefreshSiteSkins],
             })
         }
         BridgeRequest::SplitToggle { window_id, tab_id } => {

@@ -14,6 +14,7 @@ import {
   type MemoryStats,
   type QuickShortcut,
   type SitePermissionItem,
+  type ThemeSummary,
   type WindowSnapshot,
 } from "./bridge";
 import { setLocale } from "./i18n";
@@ -21,7 +22,7 @@ import { setLocale } from "./i18n";
 const root = document.getElementById("settings-root") as HTMLDivElement;
 const windowId = getWindowIdFromQuery();
 
-type SettingsTab = "shortcuts" | "memory" | "blocker" | "session" | "import" | "quick";
+type SettingsTab = "shortcuts" | "skins" | "memory" | "blocker" | "session" | "import" | "quick";
 
 let activeTab: SettingsTab = "shortcuts";
 let currentSettings: CoreSettings = {
@@ -64,6 +65,8 @@ let importing = false;
 let statusMessage: { text: string; isError: boolean } | null = null;
 let dataSummary: DataSummaryPayload = { bookmarks: [], history: [] };
 let savedPermissions: SitePermissionItem[] = [];
+let availableThemes: ThemeSummary[] = [];
+let pendingScriptOptInThemeId: string | null = null;
 let recordingActionId: string | null = null;
 
 interface ShortcutMeta {
@@ -283,6 +286,7 @@ function render(): void {
   tabs.className = "settings-tabs";
   const tabDefs: [SettingsTab, string, string][] = [
     ["shortcuts", "fa-solid fa-keyboard", l("Atalhos", "Shortcuts")],
+    ["skins", "fa-solid fa-wand-magic-sparkles", l("Skins de Sites", "Site Skins")],
     ["memory", "fa-solid fa-microchip", l("Memória", "Memory")],
     ["blocker", "fa-solid fa-shield-halved", l("Bloqueador", "Blocker")],
     ["session", "fa-solid fa-lock", l("Sessão & Permissões", "Session & Permissions")],
@@ -316,6 +320,8 @@ function render(): void {
 
   if (activeTab === "shortcuts") {
     shell.appendChild(renderShortcutsPanel());
+  } else if (activeTab === "skins") {
+    shell.appendChild(renderSiteSkinsPanel());
   } else if (activeTab === "memory") {
     shell.appendChild(renderMemoryPanel());
   } else if (activeTab === "blocker") {
@@ -1045,6 +1051,181 @@ function renderBlockerPanel(): HTMLElement {
   return card;
 }
 
+function renderSiteSkinsPanel(): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "20px";
+
+  const globalCard = document.createElement("section");
+  globalCard.className = "panel-card";
+  globalCard.innerHTML = `<div class="panel-head"><h2><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>${l("Skins por Site (CSS + JS isolado)", "Per-Site Skins (CSS + isolated JS)")}</span></h2></div>`;
+
+  const desc = document.createElement("p");
+  desc.className = "muted";
+  desc.textContent = l(
+    "Temas podem estilizar sites específicos (ex: skin do YouTube no Y2K Maximal) injetando CSS no início do carregamento e JS em contexto isolado, sem acesso à API window.seu.",
+    "Themes can restyle specific sites (e.g. YouTube skin in Y2K Maximal) by injecting anti-flash CSS at load start and JS in an isolated context with zero access to window.seu.",
+  );
+  globalCard.appendChild(desc);
+
+  const skinsDisabled = currentSettings.site_skins_enabled === false;
+  const checks = document.createElement("div");
+  checks.className = "checks-row";
+  const toggleRow = makeCheckbox(
+    l(
+      "Desativar skins de sites (interruptor global — remove CSS e JS de skins em todas as abas)",
+      "Disable site skins (global kill-switch — removes skin CSS & JS across all tabs)",
+    ),
+    skinsDisabled,
+    (disabledChecked) => {
+      void callBridge<CoreSettings>("settings.setSiteSkinsEnabled", {
+        enabled: !disabledChecked,
+      }).then((updated) => {
+        if (updated) currentSettings = updated;
+        statusMessage = {
+          text: disabledChecked
+            ? l("Skins de sites desativadas em todas as abas.", "Site skins disabled across all tabs.")
+            : l("Skins de sites ativadas.", "Site skins enabled."),
+          isError: false,
+        };
+        render();
+      });
+    },
+  );
+  toggleRow.dataset.testId = "disable-site-skins-toggle";
+  checks.appendChild(toggleRow);
+  globalCard.appendChild(checks);
+
+  const activeTheme = availableThemes.find((t) => t.id === currentSettings.active_theme_id);
+  const activeSites = activeTheme?.site_skin_patterns ?? [];
+  const activeInfo = document.createElement("p");
+  activeInfo.className = "muted";
+  activeInfo.style.marginTop = "12px";
+  activeInfo.textContent =
+    activeSites.length > 0
+      ? l(
+          `Tema ativo (${activeTheme?.name ?? currentSettings.active_theme_id}) inclui skins para: ${activeSites.join(", ")}.`,
+          `Active theme (${activeTheme?.name ?? currentSettings.active_theme_id}) includes skins for: ${activeSites.join(", ")}.`,
+        )
+      : l(
+          `O tema ativo (${activeTheme?.name ?? currentSettings.active_theme_id}) não declara skins de sites.`,
+          `Active theme (${activeTheme?.name ?? currentSettings.active_theme_id}) does not declare site skins.`,
+        );
+  globalCard.appendChild(activeInfo);
+  wrap.appendChild(globalCard);
+
+  // Security opt-in section for user/imported themes containing site scripts.
+  const secCard = document.createElement("section");
+  secCard.className = "panel-card";
+  secCard.innerHTML = `<div class="panel-head"><h2><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span>${l("Segurança de Scripts em Temas Importados", "Imported Theme Script Security")}</span></h2></div>`;
+
+  const secDesc = document.createElement("p");
+  secDesc.className = "muted";
+  secDesc.textContent = l(
+    "CSS de skins é sempre permitido quando as skins estão ligadas. Já o JS de temas importados/usuário vem DESLIGADO por padrão e exige sua autorização explícita abaixo. Scripts de skin nunca acessam window.seu.",
+    "Skin CSS is always allowed when site skins are on. Site JS from imported/user themes is DISABLED by default and requires explicit opt-in below. Skin scripts never access window.seu.",
+  );
+  secCard.appendChild(secDesc);
+
+  const allowedSet = new Set(currentSettings.allowed_site_script_themes ?? []);
+  const customWithJs = availableThemes.filter((t) => !t.builtin && t.has_site_scripts);
+
+  const list = document.createElement("div");
+  list.className = "shortcut-list";
+  if (customWithJs.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = l(
+      "Nenhum tema importado com scripts de site instalado no momento.",
+      "No imported themes containing site scripts are currently installed.",
+    );
+    list.appendChild(empty);
+  } else {
+    for (const item of customWithJs) {
+      const allowed = allowedSet.has(item.id);
+      const row = document.createElement("div");
+      row.className = "shortcut-row";
+      row.style.flexWrap = "wrap";
+      row.style.gap = "8px";
+
+      const info = document.createElement("span");
+      info.className = "shortcut-name";
+      info.textContent = `${item.name} (${item.id}) — ${(item.site_skin_patterns ?? []).join(", ")} · ${
+        allowed ? l("JS PERMITIDO", "JS ALLOWED") : l("JS BLOQUEADO", "JS BLOCKED")
+      }`;
+      row.appendChild(info);
+
+      if (allowed) {
+        const revokeBtn = document.createElement("button");
+        revokeBtn.type = "button";
+        revokeBtn.className = "btn btn-danger";
+        revokeBtn.innerHTML = `<i class="fa-solid fa-ban" aria-hidden="true"></i><span>${l("Revogar JS", "Revoke JS")}</span>`;
+        revokeBtn.addEventListener("click", () => {
+          pendingScriptOptInThemeId = null;
+          void callBridge<CoreSettings>("themes.setSiteScriptsAllowed", {
+            id: item.id,
+            allowed: false,
+          }).then((updated) => {
+            if (updated) currentSettings = updated;
+            statusMessage = {
+              text: l(`Scripts de site revogados para "${item.name}".`, `Site scripts revoked for "${item.name}".`),
+              isError: false,
+            };
+            render();
+          });
+        });
+        row.appendChild(revokeBtn);
+      } else if (pendingScriptOptInThemeId === item.id) {
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.className = "btn btn-primary";
+        confirmBtn.innerHTML = `<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>${l("Confirmar: entendo os riscos e permito JS", "Confirm: I trust this theme's site JS")}</span>`;
+        confirmBtn.addEventListener("click", () => {
+          pendingScriptOptInThemeId = null;
+          void callBridge<CoreSettings>("themes.setSiteScriptsAllowed", {
+            id: item.id,
+            allowed: true,
+          }).then((updated) => {
+            if (updated) currentSettings = updated;
+            statusMessage = {
+              text: l(`Scripts de site permitidos para "${item.name}".`, `Site scripts enabled for "${item.name}".`),
+              isError: false,
+            };
+            render();
+          });
+        });
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "btn";
+        cancelBtn.textContent = l("Cancelar", "Cancel");
+        cancelBtn.addEventListener("click", () => {
+          pendingScriptOptInThemeId = null;
+          render();
+        });
+        row.appendChild(confirmBtn);
+        row.appendChild(cancelBtn);
+      } else {
+        const allowBtn = document.createElement("button");
+        allowBtn.type = "button";
+        allowBtn.className = "btn";
+        allowBtn.innerHTML = `<i class="fa-solid fa-shield" aria-hidden="true"></i><span>${l("Permitir JS de sites...", "Allow site JS...")}</span>`;
+        allowBtn.addEventListener("click", () => {
+          pendingScriptOptInThemeId = item.id;
+          render();
+        });
+        row.appendChild(allowBtn);
+      }
+
+      list.appendChild(row);
+    }
+  }
+  secCard.appendChild(list);
+  wrap.appendChild(secCard);
+
+  return wrap;
+}
+
 function renderSessionPermissionsPanel(): HTMLElement {
   const wrap = document.createElement("div");
   wrap.style.display = "flex";
@@ -1184,12 +1365,13 @@ onBridgeEvent((event) => {
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme, mem, blk, perms] = await Promise.all([
+  const [settings, theme, mem, blk, perms, themeList] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
     callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
     callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
     callBridge<SitePermissionItem[]>("permissions.list").catch(() => []),
+    callBridge<ThemeSummary[]>("themes.list").catch(() => []),
   ]);
   if (settings) {
     currentSettings = settings;
@@ -1205,6 +1387,7 @@ async function bootstrap(): Promise<void> {
     currentBlocker = blk;
   }
   savedPermissions = perms ?? [];
+  availableThemes = Array.isArray(themeList) ? themeList : [];
   await refreshProfilesAndData();
 }
 

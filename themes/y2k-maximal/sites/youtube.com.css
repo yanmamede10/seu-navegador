@@ -1,0 +1,204 @@
+/* ============================================================================
+   Seu Navegador — Y2K Maximal Skin for YouTube (youtube.com)
+   Maintainable selector groups:
+   1. Palette & Canvas overrides
+   2. Masthead, Search & Sidebar
+   3. Video Cards & Thumbnails
+   4. Video Player & Wide Focus Mode
+   5. Shorts Hiding (toggled via html[data-seu-yt-hide-shorts="true"])
+   6. Floating Y2K Control Pill (#seu-yt-y2k-bar)
+   ============================================================================ */
+
+/* 1. Palette & Canvas overrides */
+html[data-seu-site-skin="y2k-maximal"],
+html[data-seu-site-skin="y2k-maximal"] body,
+html[data-seu-site-skin="y2k-maximal"] ytd-app,
+html[data-seu-site-skin="y2k-maximal"] #content.ytd-app,
+html[data-seu-site-skin="y2k-maximal"] #page-manager.ytd-app {
+  --yt-spec-base-background: var(--seu-bg, #070B24) !important;
+  --yt-spec-raised-background: var(--seu-surface, #0B1240) !important;
+  --yt-spec-menu-background: var(--seu-surface2, #0E1650) !important;
+  --yt-spec-additive-background: rgba(255, 46, 147, 0.14) !important;
+  --yt-spec-text-primary: var(--seu-text, #E6E9FF) !important;
+  --yt-spec-text-secondary: var(--seu-text-muted, #8F9BD9) !important;
+  --yt-spec-call-to-action: var(--seu-custom-cyan, #00F0FF) !important;
+  --yt-spec-brand-icon-active: var(--seu-accent, #FF2E93) !important;
+  --yt-spec-10-percent-layer: var(--seu-border, #2A3680) !important;
+  background-color: var(--seu-bg, #070B24) !important;
+  color: var(--seu-text, #E6E9FF) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] ytd-app {
+  background-image:
+    radial-gradient(circle at 12% 10%, rgba(255, 46, 147, 0.12), transparent 34%),
+    radial-gradient(circle at 88% 18%, rgba(0, 240, 255, 0.10), transparent 32%),
+    linear-gradient(rgba(42, 54, 128, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42, 54, 128, 0.18) 1px, transparent 1px) !important;
+  background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px !important;
+}
+
+/* 2. Masthead, Search & Sidebar */
+html[data-seu-site-skin="y2k-maximal"] #masthead-container ytd-masthead,
+html[data-seu-site-skin="y2k-maximal"] #background.ytd-masthead {
+  background: var(--seu-surface, #0B1240) !important;
+  border-bottom: 2px solid var(--seu-accent, #FF2E93) !important;
+  box-shadow: 0 3px 0 rgba(0, 240, 255, 0.45) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] #search-form #container.ytd-searchbox,
+html[data-seu-site-skin="y2k-maximal"] .ytSearchboxComponentInputBox {
+  background: var(--seu-bg, #070B24) !important;
+  border: 2px solid var(--seu-custom-cyan, #00F0FF) !important;
+  border-radius: 999px !important;
+  box-shadow: 3px 3px 0 var(--seu-accent, #FF2E93) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] #guide-content.ytd-app,
+html[data-seu-site-skin="y2k-maximal"] ytd-mini-guide-renderer {
+  background: var(--seu-surface, #0B1240) !important;
+  border-right: 2px solid var(--seu-border, #2A3680) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] yt-chip-cloud-chip-renderer[selected] {
+  background: var(--seu-custom-lime, #B8FF00) !important;
+  color: #070B24 !important;
+  border: 2px solid #070B24 !important;
+  box-shadow: 2px 2px 0 var(--seu-accent, #FF2E93) !important;
+}
+
+/* 3. Video Cards & Thumbnails */
+html[data-seu-site-skin="y2k-maximal"] ytd-rich-item-renderer,
+html[data-seu-site-skin="y2k-maximal"] ytd-video-renderer,
+html[data-seu-site-skin="y2k-maximal"] ytd-compact-video-renderer {
+  border-radius: 14px !important;
+  transition: transform 0.14s ease, box-shadow 0.14s ease !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] ytd-rich-item-renderer #content,
+html[data-seu-site-skin="y2k-maximal"] ytd-rich-grid-media {
+  background: rgba(11, 18, 64, 0.88) !important;
+  border: 2px solid var(--seu-border, #2A3680) !important;
+  border-radius: 14px !important;
+  padding: 8px !important;
+  box-shadow: 4px 4px 0 rgba(255, 46, 147, 0.55) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] ytd-rich-item-renderer:hover #content {
+  border-color: var(--seu-custom-lime, #B8FF00) !important;
+  box-shadow: 5px 5px 0 var(--seu-custom-cyan, #00F0FF) !important;
+  transform: translate(-2px, -2px) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] ytd-thumbnail a#thumbnail,
+html[data-seu-site-skin="y2k-maximal"] .yt-thumbnail-view-model {
+  border-radius: 10px !important;
+  border: 1.5px solid rgba(0, 240, 255, 0.35) !important;
+  overflow: hidden !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] #subscribe-button button,
+html[data-seu-site-skin="y2k-maximal"] ytd-subscribe-button-renderer button {
+  background: var(--seu-accent, #FF2E93) !important;
+  color: #070B24 !important;
+  font-weight: 800 !important;
+  border: 2px solid var(--seu-custom-lime, #B8FF00) !important;
+  box-shadow: 3px 3px 0 #070B24 !important;
+}
+
+/* 4. Video Player & Wide Focus Mode */
+html[data-seu-site-skin="y2k-maximal"] #movie_player,
+html[data-seu-site-skin="y2k-maximal"] ytd-player #container {
+  border: 2px solid var(--seu-custom-cyan, #00F0FF) !important;
+  border-radius: 14px !important;
+  box-shadow: 6px 6px 0 var(--seu-accent, #FF2E93) !important;
+  overflow: hidden !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"] .ytp-play-progress,
+html[data-seu-site-skin="y2k-maximal"] .ytp-scrubber-button {
+  background: var(--seu-accent, #FF2E93) !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-wide="true"] ytd-watch-flexy #columns {
+  max-width: 100% !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-wide="true"] ytd-watch-flexy #primary {
+  max-width: 100% !important;
+  width: 100% !important;
+  flex: 1 1 100% !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-wide="true"] ytd-watch-flexy #secondary {
+  display: none !important;
+}
+
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-wide="true"] ytd-watch-flexy #player-container-outer {
+  max-width: min(1480px, 96vw) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* 5. Shorts Hiding (toggled via html[data-seu-yt-hide-shorts="true"]) */
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] ytd-reel-shelf-renderer,
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] ytd-rich-shelf-renderer[is-shorts],
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts]),
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] ytd-rich-section-renderer:has(ytm-shorts-lockup-view-model),
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] grid-shelf-view-model:has(ytm-shorts-lockup-view-model),
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] ytd-guide-entry-renderer a[title="Shorts"],
+html[data-seu-site-skin="y2k-maximal"][data-seu-yt-hide-shorts="true"] [data-seu-yt-shorts-hidden="true"] {
+  display: none !important;
+}
+
+/* 6. Floating Y2K Control Pill (#seu-yt-y2k-bar) */
+#seu-yt-y2k-bar {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--seu-surface, #0B1240);
+  color: var(--seu-text, #E6E9FF);
+  border: 2px solid var(--seu-custom-cyan, #00F0FF);
+  box-shadow: 4px 4px 0 var(--seu-accent, #FF2E93);
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+#seu-yt-y2k-bar .seu-yt-tag {
+  color: var(--seu-custom-lime, #B8FF00);
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 0 4px;
+}
+
+#seu-yt-y2k-bar button {
+  appearance: none;
+  cursor: pointer;
+  border: 1.5px solid var(--seu-border, #2A3680);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--seu-bg, #070B24);
+  color: var(--seu-text, #E6E9FF);
+  font-size: 11px;
+  font-weight: 700;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+#seu-yt-y2k-bar button[aria-pressed="true"] {
+  background: var(--seu-custom-lime, #B8FF00);
+  color: #070B24;
+  border-color: #070B24;
+}
+
+#seu-yt-y2k-bar button:hover {
+  transform: translateY(-1px);
+  border-color: var(--seu-accent, #FF2E93);
+}

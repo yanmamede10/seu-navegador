@@ -12,9 +12,14 @@
     "newtab_html": "newtab.html",
     "newtab_css": "newtab.css"
   },
-  "sites": {},
+  "sites": {
+    "youtube.com": [
+      "sites/youtube.com.css",
+      "sites/youtube.com.js"
+    ]
+  },
   "permissions": {
-    "site_scripts": false
+    "site_scripts": true
   },
   "mobile": {
     "shell": null,
