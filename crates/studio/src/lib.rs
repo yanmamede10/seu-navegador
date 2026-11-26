@@ -3,10 +3,15 @@
 //! Zero CEF or Win32 dependencies and zero background threads until a workspace
 //! command is explicitly started.
 
+pub mod agents;
 pub mod git;
 pub mod runner;
 pub mod workspace;
 
+use agents::{
+    detect_local_clis, AgentNotifyFn, AgentOrchestrator, AgentProviderConfig, AgentRole,
+    AgentRunSnapshot, BrowserQaSnapshot, DetectedLocalCli,
+};
 use git::{inspect_git_status, read_git_diff, GitSummary};
 use runner::{TerminalManager, TerminalNotifyFn, TerminalSnapshot};
 use serde::{Deserialize, Serialize};
@@ -28,6 +33,8 @@ pub struct WorkspaceSummary {
 pub struct StudioService {
     workspace_root: Option<PathBuf>,
     terminals: TerminalManager,
+    orchestrator: AgentOrchestrator,
+    last_qa_snapshot: Option<BrowserQaSnapshot>,
 }
 
 impl StudioService {
@@ -140,5 +147,54 @@ impl StudioService {
 
     pub fn shutdown(&mut self) {
         self.terminals.kill_all();
+    }
+
+    // -------------------------------------------------------------------------
+    // Hybrid Multi-Agent Orchestrator & Live Browser QA
+    // -------------------------------------------------------------------------
+
+    pub fn detect_local_clis(&self) -> Vec<DetectedLocalCli> {
+        detect_local_clis()
+    }
+
+    pub fn list_agent_runs(&self) -> Vec<AgentRunSnapshot> {
+        self.orchestrator.list_runs()
+    }
+
+    pub fn set_last_qa_snapshot(&mut self, snapshot: BrowserQaSnapshot) {
+        self.last_qa_snapshot = Some(snapshot);
+    }
+
+    pub fn last_qa_snapshot(&self) -> Option<BrowserQaSnapshot> {
+        self.last_qa_snapshot.clone()
+    }
+
+    pub fn start_agent_run(
+        &mut self,
+        role: AgentRole,
+        config: AgentProviderConfig,
+        prompt: String,
+        on_update: Option<AgentNotifyFn>,
+    ) -> Result<AgentRunSnapshot, String> {
+        self.orchestrator.start_run(
+            self.workspace_root.clone(),
+            role,
+            config,
+            prompt,
+            self.last_qa_snapshot.clone(),
+            on_update,
+        )
+    }
+
+    pub fn approve_agent_patch(
+        &self,
+        run_id: u64,
+        patch_index: usize,
+    ) -> Result<AgentRunSnapshot, String> {
+        let root = self
+            .workspace_root
+            .as_ref()
+            .ok_or_else(|| WorkspaceError::NoWorkspaceOpen.to_string())?;
+        self.orchestrator.approve_patch(root, run_id, patch_index)
     }
 }

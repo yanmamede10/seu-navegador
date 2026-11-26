@@ -29,6 +29,7 @@ use seu_core::{
 };
 use seu_storage::{DownloadItem as StoredDownloadItem, Storage};
 use seu_studio::{
+    agents::{AgentNotifyFn, AgentRunSnapshot, BrowserQaSnapshot, QaActionResult, QaConsoleEntry},
     runner::{TerminalNotifyFn, TerminalSnapshot},
     StudioService,
 };
@@ -140,6 +141,7 @@ struct SharedState {
     download_callbacks: HashMap<i64, DownloadItemCallback>,
     pending_permissions: HashMap<u64, PendingPermissionEntry>,
     next_permission_prompt_id: u64,
+    tab_console_logs: HashMap<TabId, Vec<QaConsoleEntry>>,
     probe_token: String,
     monitor_running: Arc<AtomicBool>,
 }
@@ -216,6 +218,7 @@ impl CefEngine {
             download_callbacks: HashMap::new(),
             pending_permissions: HashMap::new(),
             next_permission_prompt_id: 1,
+            tab_console_logs: HashMap::new(),
             probe_token,
             monitor_running: Arc::new(AtomicBool::new(false)),
         }));
@@ -553,6 +556,7 @@ impl BrowserBackend for CefEngine {
     fn close_tab_view(&self, tab_id: TabId) {
         let browser = self.state.lock().ok().and_then(|mut g| {
             g.pending_scroll_restore.remove(&tab_id);
+            g.tab_console_logs.remove(&tab_id);
             g.tab_browsers.remove(&tab_id)
         });
         remove_tab_thumbnail(tab_id);
@@ -1702,6 +1706,17 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::PickStudioFolder { window_id } => {
                 spawn_studio_folder_picker(state.clone(), window_id);
             }
+            HostEffect::StudioInspectPairedTab { window_id } => {
+                inspect_paired_tab_for_qa(state, window_id);
+            }
+            HostEffect::StudioQaExecAction {
+                window_id,
+                action,
+                selector,
+                value,
+            } => {
+                exec_paired_tab_qa_action(state, window_id, &action, &selector, value.as_deref());
+            }
         }
     }
 }
@@ -1840,6 +1855,7 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
             let storage_guard = storage.lock().ok();
             let db_ref = storage_guard.as_ref().and_then(|g| g.as_ref());
             let terminal_notify = make_studio_terminal_notifier(self.state.clone());
+            let agent_notify = make_studio_agent_notifier(self.state.clone());
             let res = match (blocker.write(), studio.lock()) {
                 (Ok(mut blocker_guard), Ok(mut studio_guard)) => handle_raw_request(
                     &origin_url,
@@ -1850,6 +1866,7 @@ impl BrowserSideHandler for SeuBridgeQueryHandler {
                     &mut blocker_guard,
                     &mut studio_guard,
                     Some(terminal_notify),
+                    Some(agent_notify),
                 ),
                 _ => Err(seu_bridge::BridgeError::InvalidArgument(
                     "blocker/studio lock error".into(),
@@ -2316,44 +2333,139 @@ wrap_display_handler! {
         fn on_console_message(
             &self,
             _browser: Option<&mut Browser>,
-            _level: LogSeverity,
+            level: LogSeverity,
             message: Option<&CefString>,
-            _source: Option<&CefString>,
-            _line: ::std::os::raw::c_int,
+            source: Option<&CefString>,
+            line: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let ViewKind::Tab { tab_id, .. } = self.kind else {
                 return 0;
             };
             let msg = message.map(|m| m.to_string()).unwrap_or_default();
-            let prefix = self
+            let token = self
                 .state
                 .lock()
                 .ok()
-                .map(|g| format!("__SEU_PROBE__{}:", g.probe_token))
+                .map(|g| g.probe_token.clone())
                 .unwrap_or_default();
-            if prefix.is_empty() {
+            if token.is_empty() {
                 return 0;
             }
-            let Some(json_str) = msg.strip_prefix(&prefix) else {
-                return 0;
-            };
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                let dirty = val.get("dirty").and_then(|v| v.as_bool());
-                let beforeunload = val.get("beforeunload").and_then(|v| v.as_bool());
-                let sx = val.get("sx").and_then(|v| v.as_i64()).map(|n| n as i32);
-                let sy = val.get("sy").and_then(|v| v.as_i64()).map(|n| n as i32);
-                let audible = val.get("audible").and_then(|v| v.as_bool());
 
-                let changed_win = self.state.lock().ok().and_then(|mut g| {
-                    g.core
-                        .update_tab_probe(tab_id, dirty, beforeunload, sx, sy, audible)
-                });
-                if let Some(wid) = changed_win {
-                    broadcast_window_state(&self.state, wid);
+            let probe_prefix = format!("__SEU_PROBE__{token}:");
+            if let Some(json_str) = msg.strip_prefix(&probe_prefix) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    let dirty = val.get("dirty").and_then(|v| v.as_bool());
+                    let beforeunload = val.get("beforeunload").and_then(|v| v.as_bool());
+                    let sx = val.get("sx").and_then(|v| v.as_i64()).map(|n| n as i32);
+                    let sy = val.get("sy").and_then(|v| v.as_i64()).map(|n| n as i32);
+                    let audible = val.get("audible").and_then(|v| v.as_bool());
+
+                    let changed_win = self.state.lock().ok().and_then(|mut g| {
+                        g.core
+                            .update_tab_probe(tab_id, dirty, beforeunload, sx, sy, audible)
+                    });
+                    if let Some(wid) = changed_win {
+                        broadcast_window_state(&self.state, wid);
+                    }
+                }
+                return 1;
+            }
+
+            let qa_snap_prefix = format!("__SEU_QA_SNAP__{token}:");
+            if let Some(json_str) = msg.strip_prefix(&qa_snap_prefix) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    let logs = self
+                        .state
+                        .lock()
+                        .ok()
+                        .and_then(|g| g.tab_console_logs.get(&tab_id).cloned())
+                        .unwrap_or_default();
+                    let console_errors: Vec<QaConsoleEntry> = logs
+                        .iter()
+                        .filter(|e| e.level == "error")
+                        .cloned()
+                        .collect();
+                    let console_warnings: Vec<QaConsoleEntry> = logs
+                        .iter()
+                        .filter(|e| e.level == "warning")
+                        .cloned()
+                        .collect();
+                    let interactive_summary: Vec<String> = val
+                        .get("interactive")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|x| x.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let snap = BrowserQaSnapshot {
+                        tab_id,
+                        url: val
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        title: val
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        viewport_w: val.get("vw").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                        viewport_h: val.get("vh").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                        interactive_count: interactive_summary.len(),
+                        interactive_summary,
+                        text_excerpt: val
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        console_errors,
+                        console_warnings,
+                        captured_at: unix_now_secs_i64(),
+                    };
+                    if let Ok(guard) = self.state.lock() {
+                        if let Ok(mut st) = guard.studio.lock() {
+                            st.set_last_qa_snapshot(snap.clone());
+                        }
+                    }
+                    let mut task = BroadcastStudioQaSnapshotTask::new(self.state.clone(), snap);
+                    post_task(ThreadId::UI, Some(&mut task));
+                }
+                return 1;
+            }
+
+            let qa_act_prefix = format!("__SEU_QA_ACT__{token}:");
+            if let Some(json_str) = msg.strip_prefix(&qa_act_prefix) {
+                if let Ok(res) = serde_json::from_str::<QaActionResult>(json_str) {
+                    let mut task = BroadcastStudioQaActionTask::new(self.state.clone(), res);
+                    post_task(ThreadId::UI, Some(&mut task));
+                }
+                return 1;
+            }
+
+            if level == LogSeverity::ERROR || level == LogSeverity::WARNING {
+                let entry = QaConsoleEntry {
+                    level: if level == LogSeverity::ERROR {
+                        "error".to_string()
+                    } else {
+                        "warning".to_string()
+                    },
+                    message: msg.chars().take(400).collect(),
+                    source: source.map(|s| s.to_string()).unwrap_or_default(),
+                    line,
+                };
+                if let Ok(mut guard) = self.state.lock() {
+                    let list = guard.tab_console_logs.entry(tab_id).or_default();
+                    list.push(entry);
+                    if list.len() > 50 {
+                        let excess = list.len() - 50;
+                        list.drain(..excess);
+                    }
                 }
             }
-            // Suppress internal probe messages from the console.
-            1
+            0
         }
     }
 }
@@ -4202,6 +4314,197 @@ wrap_task! {
                 });
                 broadcast_studio_event(&self.state, &payload);
             }
+        }
+    }
+}
+
+fn make_studio_agent_notifier(state: Arc<Mutex<SharedState>>) -> AgentNotifyFn {
+    Arc::new(move |run: AgentRunSnapshot| {
+        let mut task = BroadcastStudioAgentTask::new(state.clone(), run);
+        post_task(ThreadId::UI, Some(&mut task));
+    })
+}
+
+fn find_paired_qa_tab(
+    state: &Arc<Mutex<SharedState>>,
+    window_id: WindowId,
+) -> Option<(TabId, Browser, String)> {
+    let guard = state.lock().ok()?;
+    let snap = guard.core.window_snapshot(window_id).ok()?;
+    let candidate_id = snap.split_tab_id.or_else(|| {
+        snap.tabs
+            .iter()
+            .rev()
+            .find(|t| {
+                !t.url.starts_with(seu_core::STUDIO_URL) && guard.tab_browsers.contains_key(&t.id)
+            })
+            .map(|t| t.id)
+    })?;
+    let browser = guard.tab_browsers.get(&candidate_id)?.clone();
+    Some((candidate_id, browser, guard.probe_token.clone()))
+}
+
+fn inspect_paired_tab_for_qa(state: &Arc<Mutex<SharedState>>, window_id: WindowId) {
+    let Some((_, browser, token)) = find_paired_qa_tab(state, window_id) else {
+        return;
+    };
+    let Some(frame) = browser.main_frame() else {
+        return;
+    };
+    let js = format!(
+        r#"(function(){{
+  var items = [];
+  var nodes = document.querySelectorAll('a,button,input,textarea,select,[role="button"]');
+  for (var i = 0; i < nodes.length && items.length < 30; i++) {{
+    var el = nodes[i];
+    var tag = el.tagName.toLowerCase();
+    var id = el.id ? '#' + el.id : '';
+    var txt = (el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().slice(0, 48);
+    items.push(tag + id + (txt ? ': ' + txt : ''));
+  }}
+  var bodyTxt = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, 1400);
+  console.debug("__SEU_QA_SNAP__{token}:" + JSON.stringify({{
+    url: location.href,
+    title: document.title || '',
+    vw: window.innerWidth || 0,
+    vh: window.innerHeight || 0,
+    interactive: items,
+    text: bodyTxt
+  }}));
+}})();"#
+    );
+    let code = CefString::from(js.as_str());
+    let url = CefString::from("seu://internal/qa-inspect");
+    frame.execute_java_script(Some(&code), Some(&url), 0);
+}
+
+fn exec_paired_tab_qa_action(
+    state: &Arc<Mutex<SharedState>>,
+    window_id: WindowId,
+    action: &str,
+    selector: &str,
+    value: Option<&str>,
+) {
+    let Some((tab_id, browser, token)) = find_paired_qa_tab(state, window_id) else {
+        let mut task = BroadcastStudioQaActionTask::new(
+            state.clone(),
+            QaActionResult {
+                ok: false,
+                action: action.to_string(),
+                selector: selector.to_string(),
+                detail: "Nenhuma aba web pareada encontrada.".to_string(),
+            },
+        );
+        post_task(ThreadId::UI, Some(&mut task));
+        return;
+    };
+
+    if action == "reload" {
+        browser.reload();
+        let mut task = BroadcastStudioQaActionTask::new(
+            state.clone(),
+            QaActionResult {
+                ok: true,
+                action: "reload".to_string(),
+                selector: String::new(),
+                detail: format!("Aba {tab_id} recarregada."),
+            },
+        );
+        post_task(ThreadId::UI, Some(&mut task));
+        return;
+    }
+
+    let Some(frame) = browser.main_frame() else {
+        return;
+    };
+    let act_json = serde_json::to_string(action).unwrap_or_else(|_| "\"assertText\"".to_string());
+    let sel_json = serde_json::to_string(selector).unwrap_or_else(|_| "\"\"".to_string());
+    let val_json =
+        serde_json::to_string(value.unwrap_or("")).unwrap_or_else(|_| "\"\"".to_string());
+
+    let js = format!(
+        r#"(function(){{
+  var action = {act_json}, selector = {sel_json}, val = {val_json};
+  var res = {{ ok: false, action: action, selector: selector, detail: '' }};
+  try {{
+    var el = selector ? document.querySelector(selector) : document.body;
+    if (!el) {{
+      res.detail = 'Elemento não encontrado: ' + selector;
+    }} else if (action === 'click') {{
+      el.click();
+      res.ok = true;
+      res.detail = 'Clique executado em ' + selector;
+    }} else if (action === 'fill') {{
+      el.value = val;
+      el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+      el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+      res.ok = true;
+      res.detail = 'Valor preenchido em ' + selector;
+    }} else if (action === 'assertText') {{
+      var txt = (el.innerText || el.textContent || el.value || '').trim();
+      res.ok = val === '' ? txt.length > 0 : txt.toLowerCase().indexOf(val.toLowerCase()) !== -1;
+      res.detail = res.ok ? ('PASS: encontrado "' + val + '"') : ('FAIL: texto atual="' + txt.slice(0, 120) + '"');
+    }} else {{
+      res.detail = 'Ação desconhecida: ' + action;
+    }}
+  }} catch (e) {{
+    res.detail = String(e);
+  }}
+  console.debug("__SEU_QA_ACT__{token}:" + JSON.stringify(res));
+}})();"#
+    );
+    let code = CefString::from(js.as_str());
+    let url = CefString::from("seu://internal/qa-action");
+    frame.execute_java_script(Some(&code), Some(&url), 0);
+}
+
+wrap_task! {
+    struct BroadcastStudioAgentTask {
+        state: Arc<Mutex<SharedState>>,
+        run: AgentRunSnapshot,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let payload = serde_json::json!({
+                "type": "studioAgentUpdate",
+                "run": self.run,
+            });
+            broadcast_studio_event(&self.state, &payload);
+        }
+    }
+}
+
+wrap_task! {
+    struct BroadcastStudioQaSnapshotTask {
+        state: Arc<Mutex<SharedState>>,
+        snapshot: BrowserQaSnapshot,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let payload = serde_json::json!({
+                "type": "studioQaSnapshot",
+                "snapshot": self.snapshot,
+            });
+            broadcast_studio_event(&self.state, &payload);
+        }
+    }
+}
+
+wrap_task! {
+    struct BroadcastStudioQaActionTask {
+        state: Arc<Mutex<SharedState>>,
+        result: QaActionResult,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let payload = serde_json::json!({
+                "type": "studioQaAction",
+                "result": self.result,
+            });
+            broadcast_studio_event(&self.state, &payload);
         }
     }
 }

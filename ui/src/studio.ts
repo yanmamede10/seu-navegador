@@ -14,8 +14,15 @@ import {
   callBridge,
   getWindowIdFromQuery,
   onBridgeEvent,
+  type AgentProviderConfig,
+  type AgentRole,
+  type AgentRunSnapshot,
+  type BrowserQaSnapshot,
   type CoreSettings,
+  type DetectedLocalCli,
   type LoadedTheme,
+  type ProviderKind,
+  type QaActionResult,
   type StudioFileContent,
   type StudioFileEntry,
   type StudioSearchMatch,
@@ -50,6 +57,106 @@ let terminalCollapsed = false;
 let terminalSnap: StudioTerminalSnapshot | null = null;
 let statusText = "Pronto";
 let editorView: EditorView | null = null;
+
+// Phase 5.6: Multi-Agent Orchestrator & Browser-Native QA state
+let agentsVisible = true;
+let agentsTab: "board" | "config" = "board";
+let selectedRole: AgentRole = "planner";
+let agentPromptDraft = "";
+let detectedClis: DetectedLocalCli[] = [];
+let agentRuns: AgentRunSnapshot[] = [];
+let qaSnapshot: BrowserQaSnapshot | null = null;
+let lastQaAction: QaActionResult | null = null;
+let qaSelectorDraft = "h1";
+let qaValueDraft = "";
+
+type RoleConfigs = Record<AgentRole, AgentProviderConfig>;
+
+function defaultRoleConfigs(): RoleConfigs {
+  return {
+    planner: {
+      provider: "gemini-api",
+      model: "gemini-2.5-flash",
+      api_key: "",
+      base_url: "",
+      custom_cli_cmd: "",
+    },
+    coder: {
+      provider: "cli-claude",
+      model: "claude-code",
+      api_key: "",
+      base_url: "",
+      custom_cli_cmd: "",
+    },
+    "qa-browser": {
+      provider: "ollama-local",
+      model: "qwen2.5-coder:7b",
+      api_key: "",
+      base_url: "http://127.0.0.1:11434",
+      custom_cli_cmd: "",
+    },
+  };
+}
+
+let roleConfigs: RoleConfigs = defaultRoleConfigs();
+
+async function saveRoleConfigs(): Promise<void> {
+  try {
+    await callBridge("studio.agentsConfigSave", {
+      config_json: JSON.stringify(roleConfigs),
+    });
+    statusText = l("Configuração de agentes salva.", "Agent provider config saved.");
+    render();
+  } catch (err) {
+    statusText = err instanceof Error ? err.message : String(err);
+    render();
+  }
+}
+
+async function runAgent(role: AgentRole, prompt: string): Promise<void> {
+  const trimmed = prompt.trim();
+  if (!trimmed) return;
+  try {
+    const run = await callBridge<AgentRunSnapshot>("studio.agentsStart", {
+      role,
+      config: roleConfigs[role],
+      prompt: trimmed,
+    });
+    if (run) {
+      agentRuns = [run, ...agentRuns.filter((r) => r.run_id !== run.run_id)];
+      statusText = l(`Agente ${role} iniciado (#${run.run_id})`, `Agent ${role} started (#${run.run_id})`);
+      render();
+    }
+  } catch (err) {
+    statusText = err instanceof Error ? err.message : String(err);
+    render();
+  }
+}
+
+async function approveAgentPatch(runId: number, patchIndex: number): Promise<void> {
+  try {
+    const updated = await callBridge<AgentRunSnapshot>("studio.agentsApprovePatch", {
+      run_id: runId,
+      patch_index: patchIndex,
+    });
+    if (updated) {
+      agentRuns = agentRuns.map((r) => (r.run_id === updated.run_id ? updated : r));
+      const patch = updated.patches[patchIndex];
+      if (patch) {
+        statusText = l(`Patch aprovado: ${patch.rel_path}`, `Patch approved: ${patch.rel_path}`);
+        const buf = openBuffers.find((b) => b.rel_path === patch.rel_path);
+        if (buf) {
+          buf.content = patch.new_content;
+          buf.savedContent = patch.new_content;
+        }
+      }
+      render();
+    }
+  } catch (err) {
+    statusText = err instanceof Error ? err.message : String(err);
+    render();
+  }
+}
 
 function l(pt: string, en: string): string {
   return locale === "en" ? en : pt;
@@ -435,6 +542,16 @@ function render(): void {
   });
   topbar.appendChild(sideToggle);
 
+  const agentsToggle = document.createElement("button");
+  agentsToggle.type = "button";
+  agentsToggle.className = `studio-btn${agentsVisible ? " active" : ""}`;
+  agentsToggle.innerHTML = `<i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>${l("Agentes", "Agents")}</span>`;
+  agentsToggle.addEventListener("click", () => {
+    agentsVisible = !agentsVisible;
+    render();
+  });
+  topbar.appendChild(agentsToggle);
+
   app.appendChild(topbar);
 
   // 2. Main Body (Sidebar + Editor/Terminal)
@@ -741,6 +858,7 @@ function render(): void {
 
   main.appendChild(term);
   body.appendChild(main);
+  body.appendChild(renderAgentsPanel());
   app.appendChild(body);
 
   // 3. Status bar
@@ -757,6 +875,377 @@ function render(): void {
   app.appendChild(footer);
 
   root.appendChild(app);
+}
+
+function renderAgentsPanel(): HTMLElement {
+  const aside = document.createElement("aside");
+  aside.className = `studio-agents${agentsVisible ? "" : " hidden"}`;
+
+  const head = document.createElement("div");
+  head.className = "agents-head";
+  head.innerHTML = `<span><i class="fa-solid fa-diagram-project" style="color: var(--seu-accent)" aria-hidden="true"></i> ${l("ORQUESTRADOR", "ORCHESTRATOR")}</span>`;
+
+  const modeBtns = document.createElement("div");
+  modeBtns.style.display = "flex";
+  modeBtns.style.gap = "4px";
+  for (const [id, lbl] of [
+    ["board", "Board"],
+    ["config", l("Provedores", "Providers")],
+  ] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `studio-btn${agentsTab === id ? " active" : ""}`;
+    b.style.height = "24px";
+    b.style.padding = "0 7px";
+    b.textContent = lbl;
+    b.addEventListener("click", () => {
+      agentsTab = id;
+      render();
+    });
+    modeBtns.appendChild(b);
+  }
+  head.appendChild(modeBtns);
+  aside.appendChild(head);
+
+  const scroll = document.createElement("div");
+  scroll.className = "agents-scroll";
+
+  if (agentsTab === "config") {
+    const cliCard = document.createElement("div");
+    cliCard.className = "agent-card";
+    cliCard.innerHTML = `<div class="agent-card-top"><span><i class="fa-solid fa-terminal" aria-hidden="true"></i> ${l("CLIs locais detectados", "Detected local CLIs")}</span></div>`;
+    const chips = document.createElement("div");
+    chips.className = "cli-chips";
+    for (const c of detectedClis) {
+      const chip = document.createElement("span");
+      chip.className = `cli-chip${c.available ? " on" : ""}`;
+      chip.textContent = `${c.id}: ${c.available ? "OK" : "--"}`;
+      chips.appendChild(chip);
+    }
+    cliCard.appendChild(chips);
+    scroll.appendChild(cliCard);
+
+    const providerOptions: [ProviderKind, string][] = [
+      ["gemini-api", "API: Google Gemini"],
+      ["anthropic-api", "API: Anthropic Claude"],
+      ["open-ai-api", "API: OpenAI / Compatível"],
+      ["ollama-local", "Local: Ollama HTTP"],
+      ["cli-gemini", "CLI Local: gemini"],
+      ["cli-claude", "CLI Local: claude"],
+      ["cli-codex", "CLI Local: codex"],
+      ["cli-custom", "CLI Customizado (stdin)"],
+    ];
+
+    for (const [role, title] of [
+      ["planner", "1. Planner"],
+      ["coder", "2. Coder"],
+      ["qa-browser", "3. QA Browser"],
+    ] as [AgentRole, string][]) {
+      const cfg = roleConfigs[role];
+      const card = document.createElement("div");
+      card.className = "agent-card";
+      card.innerHTML = `<div class="agent-card-top"><span>${title}</span></div>`;
+
+      const sel = document.createElement("select");
+      sel.className = "studio-select";
+      for (const [val, label] of providerOptions) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        if (cfg.provider === val) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", () => {
+        cfg.provider = sel.value as ProviderKind;
+        render();
+      });
+      card.appendChild(sel);
+
+      const modelIn = document.createElement("input");
+      modelIn.className = "studio-input";
+      modelIn.value = cfg.model;
+      modelIn.placeholder = l("Modelo (ex: gemini-2.5-flash, qwen2.5-coder:7b)", "Model name");
+      modelIn.addEventListener("input", () => {
+        cfg.model = modelIn.value;
+      });
+      card.appendChild(modelIn);
+
+      if (
+        cfg.provider === "gemini-api" ||
+        cfg.provider === "anthropic-api" ||
+        cfg.provider === "open-ai-api"
+      ) {
+        const keyIn = document.createElement("input");
+        keyIn.type = "password";
+        keyIn.className = "studio-input";
+        keyIn.value = cfg.api_key;
+        keyIn.placeholder = "API Key...";
+        keyIn.addEventListener("input", () => {
+          cfg.api_key = keyIn.value;
+        });
+        card.appendChild(keyIn);
+      }
+
+      if (cfg.provider === "ollama-local" || cfg.provider === "open-ai-api") {
+        const urlIn = document.createElement("input");
+        urlIn.className = "studio-input";
+        urlIn.value = cfg.base_url;
+        urlIn.placeholder =
+          cfg.provider === "ollama-local"
+            ? "http://127.0.0.1:11434"
+            : "https://api.openai.com/v1";
+        urlIn.addEventListener("input", () => {
+          cfg.base_url = urlIn.value;
+        });
+        card.appendChild(urlIn);
+      }
+
+      if (cfg.provider === "cli-custom") {
+        const cmdIn = document.createElement("input");
+        cmdIn.className = "studio-input";
+        cmdIn.value = cfg.custom_cli_cmd;
+        cmdIn.placeholder = l("Comando CLI (lê prompt via stdin)", "CLI command (reads prompt from stdin)");
+        cmdIn.addEventListener("input", () => {
+          cfg.custom_cli_cmd = cmdIn.value;
+        });
+        card.appendChild(cmdIn);
+      }
+
+      scroll.appendChild(card);
+    }
+
+    const saveCfgBtn = document.createElement("button");
+    saveCfgBtn.type = "button";
+    saveCfgBtn.className = "studio-btn primary";
+    saveCfgBtn.style.justifyContent = "center";
+    saveCfgBtn.innerHTML = `<i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span>${l("Salvar provedores", "Save providers")}</span>`;
+    saveCfgBtn.addEventListener("click", () => void saveRoleConfigs());
+    scroll.appendChild(saveCfgBtn);
+  } else {
+    // 1. Live Paired-Tab Browser QA Card
+    const qaCard = document.createElement("div");
+    qaCard.className = "agent-card";
+    const qaHead = document.createElement("div");
+    qaHead.className = "agent-card-top";
+    qaHead.innerHTML = `<span><i class="fa-solid fa-microscope" style="color: var(--seu-accent)" aria-hidden="true"></i> ${l("QA Aba Pareada", "Paired Tab QA")}</span>`;
+
+    const inspectBtn = document.createElement("button");
+    inspectBtn.type = "button";
+    inspectBtn.className = "studio-btn";
+    inspectBtn.style.height = "24px";
+    inspectBtn.innerHTML = `<i class="fa-solid fa-radar" aria-hidden="true"></i><span>${l("Inspecionar", "Inspect")}</span>`;
+    inspectBtn.addEventListener("click", () => {
+      void callBridge("studio.qaInspectPairedTab", { window_id: windowId });
+    });
+    qaHead.appendChild(inspectBtn);
+    qaCard.appendChild(qaHead);
+
+    if (qaSnapshot) {
+      const meta = document.createElement("div");
+      meta.style.fontSize = "11px";
+      meta.style.color = "var(--seu-text-muted)";
+      meta.textContent = `${qaSnapshot.url} (${qaSnapshot.viewport_w}x${qaSnapshot.viewport_h})`;
+      qaCard.appendChild(meta);
+
+      const badges = document.createElement("div");
+      badges.className = "cli-chips";
+      const errChip = document.createElement("span");
+      errChip.className = `agent-pill${qaSnapshot.console_errors.length === 0 ? " ok" : " err"}`;
+      errChip.textContent = `Console err: ${qaSnapshot.console_errors.length}`;
+      const elChip = document.createElement("span");
+      elChip.className = "agent-pill";
+      elChip.textContent = `DOM elems: ${qaSnapshot.interactive_count}`;
+      badges.appendChild(errChip);
+      badges.appendChild(elChip);
+      qaCard.appendChild(badges);
+    } else {
+      const hint = document.createElement("div");
+      hint.style.fontSize = "11px";
+      hint.style.color = "var(--seu-text-muted)";
+      hint.textContent = l(
+        "Clique em Inspecionar para ler DOM, elementos interativos e erros do console da aba real ao lado.",
+        "Click Inspect to read DOM, interactive elements, and console errors from the paired live tab.",
+      );
+      qaCard.appendChild(hint);
+    }
+
+    // Quick QA Action runner (assertText / click)
+    const qaRow = document.createElement("div");
+    qaRow.style.display = "flex";
+    qaRow.style.gap = "4px";
+    const selIn = document.createElement("input");
+    selIn.className = "studio-input";
+    selIn.style.height = "26px";
+    selIn.value = qaSelectorDraft;
+    selIn.placeholder = "CSS selector";
+    selIn.addEventListener("input", () => {
+      qaSelectorDraft = selIn.value;
+    });
+    const valIn = document.createElement("input");
+    valIn.className = "studio-input";
+    valIn.style.height = "26px";
+    valIn.value = qaValueDraft;
+    valIn.placeholder = l("texto esperado", "expected text");
+    valIn.addEventListener("input", () => {
+      qaValueDraft = valIn.value;
+    });
+    qaRow.appendChild(selIn);
+    qaRow.appendChild(valIn);
+    qaCard.appendChild(qaRow);
+
+    const qaBtns = document.createElement("div");
+    qaBtns.style.display = "flex";
+    qaBtns.style.gap = "4px";
+    for (const [act, lbl] of [
+      ["assertText", "Assert"],
+      ["click", "Click"],
+      ["reload", "Reload"],
+    ] as const) {
+      const ab = document.createElement("button");
+      ab.type = "button";
+      ab.className = "studio-btn";
+      ab.style.height = "24px";
+      ab.style.flex = "1";
+      ab.style.justifyContent = "center";
+      ab.textContent = lbl;
+      ab.addEventListener("click", () => {
+        void callBridge("studio.qaExecAction", {
+          window_id: windowId,
+          action: act,
+          selector: qaSelectorDraft,
+          value: qaValueDraft,
+        });
+      });
+      qaBtns.appendChild(ab);
+    }
+    qaCard.appendChild(qaBtns);
+
+    if (lastQaAction) {
+      const resEl = document.createElement("div");
+      resEl.className = `agent-pill${lastQaAction.ok ? " ok" : " err"}`;
+      resEl.textContent = lastQaAction.detail;
+      qaCard.appendChild(resEl);
+    }
+    scroll.appendChild(qaCard);
+
+    // 2. Agent Run Cards
+    if (agentRuns.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "agent-card";
+      empty.style.fontSize = "11px";
+      empty.style.color = "var(--seu-text-muted)";
+      empty.textContent = l(
+        "Escolha um papel abaixo (Planner, Coder ou QA Browser) e envie uma tarefa. Configure APIs ou CLIs locais na aba Provedores.",
+        "Pick a role below (Planner, Coder, or QA Browser) and send a task. Configure APIs or local CLIs in the Providers tab.",
+      );
+      scroll.appendChild(empty);
+    } else {
+      for (const run of agentRuns) {
+        const card = document.createElement("div");
+        card.className = `agent-card${run.status === "running" ? " running" : ""}`;
+
+        const top = document.createElement("div");
+        top.className = "agent-card-top";
+        const name = document.createElement("span");
+        name.textContent = `#${run.run_id} ${run.role.toUpperCase()}`;
+        const pill = document.createElement("span");
+        pill.className = `agent-pill${run.status === "done" ? " ok" : run.status === "error" ? " err" : ""}`;
+        pill.textContent = run.status.toUpperCase();
+        top.appendChild(name);
+        top.appendChild(pill);
+        card.appendChild(top);
+
+        const sub = document.createElement("div");
+        sub.style.fontSize = "10px";
+        sub.style.color = "var(--seu-text-muted)";
+        sub.textContent = `${run.provider} • ${run.model}`;
+        card.appendChild(sub);
+
+        const out = document.createElement("pre");
+        out.className = "agent-output";
+        out.textContent = run.output;
+        card.appendChild(out);
+
+        run.patches.forEach((patch, idx) => {
+          const pBox = document.createElement("div");
+          pBox.className = "patch-box";
+          const pLbl = document.createElement("span");
+          pLbl.textContent = patch.preview;
+          const pBtn = document.createElement("button");
+          pBtn.type = "button";
+          pBtn.className = patch.applied ? "studio-btn" : "studio-btn primary";
+          pBtn.style.height = "24px";
+          pBtn.disabled = patch.applied;
+          pBtn.textContent = patch.applied
+            ? l("Aplicado", "Applied")
+            : l("Aprovar Patch", "Approve Patch");
+          pBtn.addEventListener("click", () => void approveAgentPatch(run.run_id, idx));
+          pBox.appendChild(pLbl);
+          pBox.appendChild(pBtn);
+          card.appendChild(pBox);
+        });
+
+        scroll.appendChild(card);
+      }
+    }
+  }
+
+  aside.appendChild(scroll);
+
+  // Composer footer
+  if (agentsTab === "board") {
+    const comp = document.createElement("div");
+    comp.className = "agents-composer";
+
+    const roles = document.createElement("div");
+    roles.className = "agents-role-row";
+    for (const [r, lbl] of [
+      ["planner", "Planner"],
+      ["coder", "Coder"],
+      ["qa-browser", "QA"],
+    ] as [AgentRole, string][]) {
+      const rb = document.createElement("button");
+      rb.type = "button";
+      rb.className = `studio-btn${selectedRole === r ? " active" : ""}`;
+      rb.style.height = "26px";
+      rb.style.justifyContent = "center";
+      rb.textContent = lbl;
+      rb.addEventListener("click", () => {
+        selectedRole = r;
+        render();
+      });
+      roles.appendChild(rb);
+    }
+    comp.appendChild(roles);
+
+    const ta = document.createElement("textarea");
+    ta.className = "studio-textarea";
+    ta.value = agentPromptDraft;
+    ta.placeholder = l(
+      "Descreva a tarefa para o agente...",
+      "Describe the task for the agent...",
+    );
+    ta.addEventListener("input", () => {
+      agentPromptDraft = ta.value;
+    });
+    comp.appendChild(ta);
+
+    const sendBtn = document.createElement("button");
+    sendBtn.type = "button";
+    sendBtn.className = "studio-btn primary";
+    sendBtn.style.justifyContent = "center";
+    sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane" aria-hidden="true"></i><span>${l("Executar", "Run")} ${selectedRole}</span>`;
+    sendBtn.addEventListener("click", () => {
+      const prompt = agentPromptDraft.trim();
+      if (!prompt) return;
+      agentPromptDraft = "";
+      void runAgent(selectedRole, prompt);
+    });
+    comp.appendChild(sendBtn);
+    aside.appendChild(comp);
+  }
+
+  return aside;
 }
 
 onBridgeEvent((event) => {
@@ -786,14 +1275,33 @@ onBridgeEvent((event) => {
     } else {
       render();
     }
+  } else if (event.type === "studioAgentUpdate") {
+    agentRuns = [event.run, ...agentRuns.filter((r) => r.run_id !== event.run.run_id)];
+    statusText = `Agent #${event.run.run_id} (${event.run.role}): ${event.run.status}`;
+    render();
+  } else if (event.type === "studioQaSnapshot") {
+    qaSnapshot = event.snapshot;
+    statusText = l(
+      `QA inspecionou ${event.snapshot.url} (${event.snapshot.console_errors.length} erros)`,
+      `QA inspected ${event.snapshot.url} (${event.snapshot.console_errors.length} errors)`,
+    );
+    render();
+  } else if (event.type === "studioQaAction") {
+    lastQaAction = event.result;
+    statusText = event.result.detail;
+    render();
   }
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme, ws] = await Promise.all([
+  const [settings, theme, ws, clis, cfgPayload, runs, lastQa] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
     callBridge<StudioWorkspaceSummary | null>("studio.getWorkspace").catch(() => null),
+    callBridge<DetectedLocalCli[]>("studio.detectClis").catch(() => []),
+    callBridge<{ config_json: string | null }>("studio.agentsConfigGet").catch(() => undefined),
+    callBridge<AgentRunSnapshot[]>("studio.agentsListRuns").catch(() => []),
+    callBridge<BrowserQaSnapshot | null>("studio.qaGetLastSnapshot").catch(() => null),
   ]);
   if (settings) {
     locale = settings.locale;
@@ -806,6 +1314,17 @@ async function bootstrap(): Promise<void> {
     dirCache = new Map([["", ws.entries]]);
     statusText = l(`Workspace: ${ws.name}`, `Workspace: ${ws.name}`);
   }
+  if (clis) detectedClis = clis;
+  if (cfgPayload?.config_json) {
+    try {
+      const parsed = JSON.parse(cfgPayload.config_json) as Partial<RoleConfigs>;
+      roleConfigs = { ...defaultRoleConfigs(), ...parsed };
+    } catch {
+      // keep defaults
+    }
+  }
+  if (runs) agentRuns = runs;
+  if (lastQa) qaSnapshot = lastQa;
   render();
 }
 

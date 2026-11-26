@@ -176,6 +176,80 @@ export interface StudioTerminalSnapshot {
   output: string;
 }
 
+export type AgentRole = "planner" | "coder" | "qa-browser";
+
+export type ProviderKind =
+  | "gemini-api"
+  | "anthropic-api"
+  | "open-ai-api"
+  | "ollama-local"
+  | "cli-gemini"
+  | "cli-claude"
+  | "cli-codex"
+  | "cli-custom";
+
+export interface AgentProviderConfig {
+  provider: ProviderKind;
+  model: string;
+  api_key: string;
+  base_url: string;
+  custom_cli_cmd: string;
+}
+
+export interface DetectedLocalCli {
+  id: string;
+  label: string;
+  available: boolean;
+}
+
+export interface QaConsoleEntry {
+  level: string;
+  message: string;
+  source: string;
+  line: number;
+}
+
+export interface BrowserQaSnapshot {
+  tab_id: number;
+  url: string;
+  title: string;
+  viewport_w: number;
+  viewport_h: number;
+  interactive_count: number;
+  interactive_summary: string[];
+  text_excerpt: string;
+  console_errors: QaConsoleEntry[];
+  console_warnings: QaConsoleEntry[];
+  captured_at: number;
+}
+
+export interface QaActionResult {
+  ok: boolean;
+  action: string;
+  selector: string;
+  detail: string;
+}
+
+export interface ProposedPatch {
+  rel_path: string;
+  new_content: string;
+  preview: string;
+  applied: boolean;
+}
+
+export interface AgentRunSnapshot {
+  run_id: number;
+  role: AgentRole;
+  provider: ProviderKind;
+  model: string;
+  prompt: string;
+  status: "running" | "done" | "error" | "canceled";
+  output: string;
+  patches: ProposedPatch[];
+  started_at: number;
+  finished_at: number | null;
+}
+
 export interface DataSummaryPayload {
   bookmarks: BookmarkItem[];
   history: HistoryItem[];
@@ -219,6 +293,9 @@ export type BridgeEvent =
   | { type: "permissionPrompt"; prompt_id: number; origin: string; permission: string }
   | { type: "studioWorkspace"; workspace: StudioWorkspaceSummary }
   | { type: "studioTerminal"; snapshot: StudioTerminalSnapshot }
+  | { type: "studioAgentUpdate"; run: AgentRunSnapshot }
+  | { type: "studioQaSnapshot"; snapshot: BrowserQaSnapshot }
+  | { type: "studioQaAction"; result: QaActionResult }
   | { type: "focusOmnibox" }
   | { type: "toggleMenu" };
 

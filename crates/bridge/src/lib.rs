@@ -19,6 +19,10 @@ use seu_storage::{
     BookmarkItem, DownloadItem, HistoryItem, SitePermissionItem, Storage,
 };
 use seu_studio::{
+    agents::{
+        AgentNotifyFn, AgentProviderConfig, AgentRole, AgentRunSnapshot, BrowserQaSnapshot,
+        DetectedLocalCli,
+    },
     git::GitSummary,
     runner::{TerminalNotifyFn, TerminalSnapshot},
     workspace::{FileContent, FileEntry, SearchMatch},
@@ -303,6 +307,34 @@ pub enum BridgeRequest {
     StudioKillCommand { session_id: u64 },
     #[serde(rename = "studio.getTerminal")]
     StudioGetTerminal { session_id: u64 },
+
+    #[serde(rename = "studio.detectClis")]
+    StudioDetectClis,
+    #[serde(rename = "studio.agentsConfigGet")]
+    StudioAgentsConfigGet,
+    #[serde(rename = "studio.agentsConfigSave")]
+    StudioAgentsConfigSave { config_json: String },
+    #[serde(rename = "studio.agentsListRuns")]
+    StudioAgentsListRuns,
+    #[serde(rename = "studio.agentsStart")]
+    StudioAgentsStart {
+        role: AgentRole,
+        config: AgentProviderConfig,
+        prompt: String,
+    },
+    #[serde(rename = "studio.agentsApprovePatch")]
+    StudioAgentsApprovePatch { run_id: u64, patch_index: usize },
+    #[serde(rename = "studio.qaInspectPairedTab")]
+    StudioQaInspectPairedTab { window_id: WindowId },
+    #[serde(rename = "studio.qaGetLastSnapshot")]
+    StudioQaGetLastSnapshot,
+    #[serde(rename = "studio.qaExecAction")]
+    StudioQaExecAction {
+        window_id: WindowId,
+        action: String,
+        selector: String,
+        value: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -381,6 +413,13 @@ pub enum BridgeResponse {
         diff: String,
     },
     StudioTerminal(Option<TerminalSnapshot>),
+    StudioClis(Vec<DetectedLocalCli>),
+    StudioAgentsConfig {
+        config_json: Option<String>,
+    },
+    StudioAgentRuns(Vec<AgentRunSnapshot>),
+    StudioAgentRun(AgentRunSnapshot),
+    StudioQaSnapshot(Option<BrowserQaSnapshot>),
 }
 
 /// Side-effect commands that the engine/window layer must execute after
@@ -501,6 +540,15 @@ pub enum HostEffect {
     PickStudioFolder {
         window_id: WindowId,
     },
+    StudioInspectPairedTab {
+        window_id: WindowId,
+    },
+    StudioQaExecAction {
+        window_id: WindowId,
+        action: String,
+        selector: String,
+        value: Option<String>,
+    },
 }
 
 pub struct DispatchOutput {
@@ -520,6 +568,7 @@ pub fn handle_raw_request(
     blocker: &mut BlockerService,
     studio: &mut StudioService,
     terminal_notify: Option<TerminalNotifyFn>,
+    agent_notify: Option<AgentNotifyFn>,
 ) -> Result<DispatchOutput, BridgeError> {
     if !is_privileged_origin(origin_url) {
         return Err(BridgeError::OriginDenied);
@@ -530,9 +579,19 @@ pub fn handle_raw_request(
 
     let req: BridgeRequest =
         serde_json::from_str(raw_json).map_err(|e| BridgeError::InvalidJson(e.to_string()))?;
-    dispatch_request(req, core, themes, storage, blocker, studio, terminal_notify)
+    dispatch_request(
+        req,
+        core,
+        themes,
+        storage,
+        blocker,
+        studio,
+        terminal_notify,
+        agent_notify,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn dispatch_request(
     req: BridgeRequest,
     core: &mut BrowserCore,
@@ -541,6 +600,7 @@ pub fn dispatch_request(
     blocker: &mut BlockerService,
     studio: &mut StudioService,
     terminal_notify: Option<TerminalNotifyFn>,
+    agent_notify: Option<AgentNotifyFn>,
 ) -> Result<DispatchOutput, BridgeError> {
     match req {
         BridgeRequest::WindowGetSnapshot { window_id } => {
@@ -1640,6 +1700,80 @@ pub fn dispatch_request(
                 effects: Vec::new(),
             })
         }
+        BridgeRequest::StudioDetectClis => Ok(DispatchOutput {
+            response: BridgeResponse::StudioClis(studio.detect_local_clis()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::StudioAgentsConfigGet => {
+            let config_json =
+                storage.and_then(|db| db.get_setting("studio_agent_config_v1").ok().flatten());
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioAgentsConfig { config_json },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioAgentsConfigSave { config_json } => {
+            if let Some(db) = storage {
+                let _ = db.set_setting("studio_agent_config_v1", &config_json);
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioAgentsConfig {
+                    config_json: Some(config_json),
+                },
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioAgentsListRuns => Ok(DispatchOutput {
+            response: BridgeResponse::StudioAgentRuns(studio.list_agent_runs()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::StudioAgentsStart {
+            role,
+            config,
+            prompt,
+        } => {
+            let run = studio
+                .start_agent_run(role, config, prompt, agent_notify)
+                .map_err(BridgeError::InvalidArgument)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioAgentRun(run),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioAgentsApprovePatch {
+            run_id,
+            patch_index,
+        } => {
+            let run = studio
+                .approve_agent_patch(run_id, patch_index)
+                .map_err(BridgeError::InvalidArgument)?;
+            Ok(DispatchOutput {
+                response: BridgeResponse::StudioAgentRun(run),
+                effects: Vec::new(),
+            })
+        }
+        BridgeRequest::StudioQaInspectPairedTab { window_id } => Ok(DispatchOutput {
+            response: BridgeResponse::Ok,
+            effects: vec![HostEffect::StudioInspectPairedTab { window_id }],
+        }),
+        BridgeRequest::StudioQaGetLastSnapshot => Ok(DispatchOutput {
+            response: BridgeResponse::StudioQaSnapshot(studio.last_qa_snapshot()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::StudioQaExecAction {
+            window_id,
+            action,
+            selector,
+            value,
+        } => Ok(DispatchOutput {
+            response: BridgeResponse::Ok,
+            effects: vec![HostEffect::StudioQaExecAction {
+                window_id,
+                action,
+                selector,
+                value,
+            }],
+        }),
     }
 }
 
@@ -1850,6 +1984,7 @@ mod tests {
             &mut blocker,
             &mut studio,
             None,
+            None,
         )
         .err();
         assert_eq!(err, Some(BridgeError::OriginDenied));
@@ -1875,6 +2010,7 @@ mod tests {
             &mut blocker,
             &mut studio,
             None,
+            None,
         );
         assert!(out.is_ok());
         if let Ok(output) = out {
@@ -1894,6 +2030,7 @@ mod tests {
             &mut blocker,
             &mut studio,
             None,
+            None,
         );
         assert!(matches!(
             theme_out.map(|o| o.response),
@@ -1908,6 +2045,7 @@ mod tests {
             None,
             &mut blocker,
             &mut studio,
+            None,
             None,
         );
         assert!(rebind.is_ok());
@@ -1924,6 +2062,7 @@ mod tests {
             None,
             &mut blocker,
             &mut studio,
+            None,
             None,
         );
         assert!(allow.is_ok());
@@ -1944,6 +2083,7 @@ mod tests {
             &mut blocker,
             &mut studio,
             None,
+            None,
         );
         assert!(split_res.is_ok());
         if let Ok(o) = split_res {
@@ -1963,6 +2103,7 @@ mod tests {
             None,
             &mut blocker,
             &mut studio,
+            None,
             None,
         );
         assert!(browser_res.is_ok());
