@@ -1141,7 +1141,11 @@ pub fn dispatch_request(
                 });
             };
             if command == MediaCommand::FocusTab {
-                let wid = core.activate_tab(tid)?;
+                let wid = core
+                    .get_tab(tid)
+                    .map(|t| t.window_id)
+                    .ok_or(CoreError::TabNotFound(tid))?;
+                core.activate_tab(wid, tid)?;
                 return Ok(DispatchOutput {
                     response: BridgeResponse::NowPlaying(core.now_playing()),
                     effects: vec![
