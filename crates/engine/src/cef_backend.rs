@@ -1717,6 +1717,9 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             } => {
                 exec_paired_tab_qa_action(state, window_id, &action, &selector, value.as_deref());
             }
+            HostEffect::StudioRefreshGit => {
+                spawn_studio_git_refresh(state.clone());
+            }
         }
     }
 }
@@ -4313,9 +4316,49 @@ wrap_task! {
                     "workspace": ws,
                 });
                 broadcast_studio_event(&self.state, &payload);
+                spawn_studio_git_refresh(self.state.clone());
             }
         }
     }
+}
+
+wrap_task! {
+    struct BroadcastStudioGitTask {
+        state: Arc<Mutex<SharedState>>,
+        git: seu_studio::git::GitSummary,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            if let Ok(guard) = self.state.lock() {
+                if let Ok(mut st) = guard.studio.lock() {
+                    st.set_cached_git(self.git.clone());
+                }
+            }
+            let payload = serde_json::json!({
+                "type": "studioGit",
+                "git": self.git,
+            });
+            broadcast_studio_event(&self.state, &payload);
+        }
+    }
+}
+
+fn spawn_studio_git_refresh(state: Arc<Mutex<SharedState>>) {
+    let root = state
+        .lock()
+        .ok()
+        .and_then(|g| g.studio.lock().ok().and_then(|st| st.workspace_root_path()));
+    let Some(root) = root else {
+        return;
+    };
+    let _ = std::thread::Builder::new()
+        .name("seu-studio-git".into())
+        .spawn(move || {
+            let git = seu_studio::git::inspect_git_status(&root);
+            let mut task = BroadcastStudioGitTask::new(state, git);
+            post_task(ThreadId::UI, Some(&mut task));
+        });
 }
 
 fn make_studio_agent_notifier(state: Arc<Mutex<SharedState>>) -> AgentNotifyFn {

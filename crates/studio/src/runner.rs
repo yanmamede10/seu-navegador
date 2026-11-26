@@ -53,8 +53,10 @@ impl TerminalManager {
 
         #[cfg(target_os = "windows")]
         let mut cmd = {
+            use std::os::windows::process::CommandExt;
             let mut c = Command::new("powershell.exe");
             c.args(["-NoProfile", "-NonInteractive", "-Command", trimmed]);
+            c.creation_flags(0x0800_0000);
             c
         };
 

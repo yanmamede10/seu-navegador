@@ -5,6 +5,22 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn git_cmd(root: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(root);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitFileStatus {
     pub rel_path: String,
@@ -30,9 +46,7 @@ impl GitSummary {
 /// Runs `git status --porcelain=v1 -b` inside `root` without ever failing hard
 /// if Git is missing or the directory is not a repository.
 pub fn inspect_git_status(root: &Path) -> GitSummary {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
+    let output = git_cmd(root)
         .args(["status", "--porcelain=v1", "-b"])
         .output();
 
@@ -104,8 +118,8 @@ pub fn parse_git_porcelain(stdout: &str) -> GitSummary {
 
 /// Returns unified diff for either a single file or the full working tree.
 pub fn read_git_diff(root: &Path, rel_path: Option<&str>) -> String {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(root).args(["diff", "--no-color"]);
+    let mut cmd = git_cmd(root);
+    cmd.args(["diff", "--no-color"]);
     if let Some(p) = rel_path {
         let trimmed = p.trim();
         if !trimmed.is_empty() {

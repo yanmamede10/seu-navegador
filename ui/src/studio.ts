@@ -1,15 +1,8 @@
 import "./icons";
 import "./studio.css";
 import { basicSetup } from "codemirror";
-import { EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { javascript } from "@codemirror/lang-javascript";
-import { rust } from "@codemirror/lang-rust";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
-import { python } from "@codemirror/lang-python";
 import {
   callBridge,
   getWindowIdFromQuery,
@@ -201,24 +194,42 @@ const seuCodeMirrorTheme = EditorView.theme({
   },
 });
 
-function languageExtension(lang: string): Extension[] {
+const langCompartment = new Compartment();
+
+async function loadLanguageExtension(lang: string): Promise<Extension[]> {
   switch (lang) {
-    case "rust":
-      return [rust()];
-    case "typescript":
-      return [javascript({ typescript: true, jsx: true })];
-    case "javascript":
-      return [javascript({ jsx: true })];
-    case "html":
-      return [html()];
-    case "css":
-      return [css()];
-    case "json":
-      return [json()];
-    case "markdown":
-      return [markdown()];
-    case "python":
-      return [python()];
+    case "rust": {
+      const m = await import("@codemirror/lang-rust");
+      return [m.rust()];
+    }
+    case "typescript": {
+      const m = await import("@codemirror/lang-javascript");
+      return [m.javascript({ typescript: true, jsx: true })];
+    }
+    case "javascript": {
+      const m = await import("@codemirror/lang-javascript");
+      return [m.javascript({ jsx: true })];
+    }
+    case "html": {
+      const m = await import("@codemirror/lang-html");
+      return [m.html()];
+    }
+    case "css": {
+      const m = await import("@codemirror/lang-css");
+      return [m.css()];
+    }
+    case "json": {
+      const m = await import("@codemirror/lang-json");
+      return [m.json()];
+    }
+    case "markdown": {
+      const m = await import("@codemirror/lang-markdown");
+      return [m.markdown()];
+    }
+    case "python": {
+      const m = await import("@codemirror/lang-python");
+      return [m.python()];
+    }
     default:
       return [];
   }
@@ -380,7 +391,7 @@ function mountCodeMirror(host: HTMLElement, buf: OpenBuffer): void {
       basicSetup,
       seuCodeMirrorTheme,
       saveKeymap,
-      ...languageExtension(buf.language),
+      langCompartment.of([]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           buf.content = update.state.doc.toString();
@@ -395,9 +406,16 @@ function mountCodeMirror(host: HTMLElement, buf: OpenBuffer): void {
     ],
   });
 
-  editorView = new EditorView({
+  const view = new EditorView({
     state,
     parent: host,
+  });
+  editorView = view;
+
+  void loadLanguageExtension(buf.language).then((exts) => {
+    if (editorView === view && exts.length > 0) {
+      view.dispatch({ effects: langCompartment.reconfigure(exts) });
+    }
   });
 }
 
@@ -1263,6 +1281,17 @@ onBridgeEvent((event) => {
       `Workspace opened: ${event.workspace.name}`,
     );
     render();
+  } else if (event.type === "studioGit") {
+    if (workspace) {
+      workspace.git = event.git;
+      const statusMap = new Map(event.git.changed_files.map((f) => [f.rel_path, f.code]));
+      workspace.entries = workspace.entries.map((e) => ({
+        ...e,
+        git_status: statusMap.get(e.rel_path) ?? null,
+      }));
+      dirCache.set("", workspace.entries);
+      render();
+    }
   } else if (event.type === "studioTerminal") {
     terminalSnap = event.snapshot;
     const pre = root.querySelector(".terminal-output") as HTMLPreElement | null;
@@ -1294,38 +1323,49 @@ onBridgeEvent((event) => {
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme, ws, clis, cfgPayload, runs, lastQa] = await Promise.all([
+  // Instant first paint (0 ms waiting on workspace/git/CLI calls).
+  render();
+
+  // Apply theme & locale first (< 10 ms).
+  const [settings, theme] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
-    callBridge<StudioWorkspaceSummary | null>("studio.getWorkspace").catch(() => null),
+  ]);
+  if (settings) locale = settings.locale;
+  if (theme) applyThemeTokens(theme);
+  render();
+
+  // Hydrate workspace, CLIs, agent config & QA snapshot progressively without blocking paint.
+  void callBridge<StudioWorkspaceSummary | null>("studio.getWorkspace")
+    .then((ws) => {
+      if (ws) {
+        workspace = ws;
+        dirCache = new Map([["", ws.entries]]);
+        statusText = l(`Workspace: ${ws.name}`, `Workspace: ${ws.name}`);
+        render();
+      }
+    })
+    .catch(() => {});
+
+  void Promise.all([
     callBridge<DetectedLocalCli[]>("studio.detectClis").catch(() => []),
     callBridge<{ config_json: string | null }>("studio.agentsConfigGet").catch(() => undefined),
     callBridge<AgentRunSnapshot[]>("studio.agentsListRuns").catch(() => []),
     callBridge<BrowserQaSnapshot | null>("studio.qaGetLastSnapshot").catch(() => null),
-  ]);
-  if (settings) {
-    locale = settings.locale;
-  }
-  if (theme) {
-    applyThemeTokens(theme);
-  }
-  if (ws) {
-    workspace = ws;
-    dirCache = new Map([["", ws.entries]]);
-    statusText = l(`Workspace: ${ws.name}`, `Workspace: ${ws.name}`);
-  }
-  if (clis) detectedClis = clis;
-  if (cfgPayload?.config_json) {
-    try {
-      const parsed = JSON.parse(cfgPayload.config_json) as Partial<RoleConfigs>;
-      roleConfigs = { ...defaultRoleConfigs(), ...parsed };
-    } catch {
-      // keep defaults
+  ]).then(([clis, cfgPayload, runs, lastQa]) => {
+    if (clis) detectedClis = clis;
+    if (cfgPayload?.config_json) {
+      try {
+        const parsed = JSON.parse(cfgPayload.config_json) as Partial<RoleConfigs>;
+        roleConfigs = { ...defaultRoleConfigs(), ...parsed };
+      } catch {
+        // keep defaults
+      }
     }
-  }
-  if (runs) agentRuns = runs;
-  if (lastQa) qaSnapshot = lastQa;
-  render();
+    if (runs) agentRuns = runs;
+    if (lastQa) qaSnapshot = lastQa;
+    render();
+  });
 }
 
 void bootstrap();

@@ -32,6 +32,7 @@ pub struct WorkspaceSummary {
 #[derive(Default)]
 pub struct StudioService {
     workspace_root: Option<PathBuf>,
+    cached_git: GitSummary,
     terminals: TerminalManager,
     orchestrator: AgentOrchestrator,
     last_qa_snapshot: Option<BrowserQaSnapshot>,
@@ -42,19 +43,32 @@ impl StudioService {
         Self::default()
     }
 
-    pub fn open_workspace(&mut self, raw_path: &str) -> Result<WorkspaceSummary, WorkspaceError> {
-        let root = open_workspace_root(raw_path)?;
-        self.workspace_root = Some(root);
-        self.workspace_summary()
+    pub fn workspace_root_path(&self) -> Option<PathBuf> {
+        self.workspace_root.clone()
     }
 
-    pub fn workspace_summary(&self) -> Result<WorkspaceSummary, WorkspaceError> {
+    pub fn set_cached_git(&mut self, git: GitSummary) {
+        self.cached_git = git;
+    }
+
+    pub fn open_workspace(&mut self, raw_path: &str) -> Result<WorkspaceSummary, WorkspaceError> {
+        let root = open_workspace_root(raw_path)?;
+        let changed = self.workspace_root.as_ref() != Some(&root);
+        self.workspace_root = Some(root);
+        if changed {
+            self.cached_git = GitSummary::default();
+        }
+        self.workspace_summary_fast()
+    }
+
+    /// Returns the workspace directory listing immediately without blocking on a
+    /// `git status` subprocess (uses `cached_git`; caller refreshes git asynchronously).
+    pub fn workspace_summary_fast(&self) -> Result<WorkspaceSummary, WorkspaceError> {
         let root = self
             .workspace_root
             .as_ref()
             .ok_or(WorkspaceError::NoWorkspaceOpen)?;
-        let git = inspect_git_status(root);
-        let status_map = git.status_map();
+        let status_map = self.cached_git.status_map();
         let entries = list_directory(root, "", &status_map)?;
         let name = root
             .file_name()
@@ -63,9 +77,13 @@ impl StudioService {
         Ok(WorkspaceSummary {
             root_path: root.to_string_lossy().to_string(),
             name,
-            git,
+            git: self.cached_git.clone(),
             entries,
         })
+    }
+
+    pub fn workspace_summary(&self) -> Result<WorkspaceSummary, WorkspaceError> {
+        self.workspace_summary_fast()
     }
 
     pub fn list_dir(&self, rel_path: &str) -> Result<Vec<FileEntry>, WorkspaceError> {
@@ -73,8 +91,7 @@ impl StudioService {
             .workspace_root
             .as_ref()
             .ok_or(WorkspaceError::NoWorkspaceOpen)?;
-        let git = inspect_git_status(root);
-        list_directory(root, rel_path, &git.status_map())
+        list_directory(root, rel_path, &self.cached_git.status_map())
     }
 
     pub fn read_file(&self, rel_path: &str) -> Result<FileContent, WorkspaceError> {

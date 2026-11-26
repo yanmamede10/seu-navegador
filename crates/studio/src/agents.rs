@@ -276,7 +276,8 @@ impl AgentOrchestrator {
     }
 }
 
-/// Detects locally installed agent CLIs (`gemini`, `claude`, `codex`, `ollama`).
+/// Detects locally installed agent CLIs (`gemini`, `claude`, `codex`, `ollama`)
+/// in pure Rust by scanning `PATH` (zero subprocess spawns, < 1 ms).
 pub fn detect_local_clis() -> Vec<DetectedLocalCli> {
     let candidates = [
         ("gemini", "Gemini CLI (gemini)"),
@@ -284,23 +285,52 @@ pub fn detect_local_clis() -> Vec<DetectedLocalCli> {
         ("codex", "Codex CLI (codex)"),
         ("ollama", "Ollama Local (ollama)"),
     ];
+    let path_dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+
+    #[cfg(target_os = "windows")]
+    let exts: Vec<String> = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+        .split(';')
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+
     candidates
         .into_iter()
-        .map(|(bin, label)| DetectedLocalCli {
-            id: bin.to_string(),
-            label: label.to_string(),
-            available: is_command_available(bin),
+        .map(|(bin, label)| {
+            #[cfg(target_os = "windows")]
+            let available = is_in_path_windows(bin, &path_dirs, &exts);
+            #[cfg(not(target_os = "windows"))]
+            let available = is_in_path_unix(bin, &path_dirs);
+            DetectedLocalCli {
+                id: bin.to_string(),
+                label: label.to_string(),
+                available,
+            }
         })
         .collect()
 }
 
-fn is_command_available(bin: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    let probe = Command::new("where.exe").arg(bin).output();
-    #[cfg(not(target_os = "windows"))]
-    let probe = Command::new("which").arg(bin).output();
+#[cfg(target_os = "windows")]
+fn is_in_path_windows(bin: &str, dirs: &[PathBuf], exts: &[String]) -> bool {
+    for dir in dirs {
+        if dir.join(bin).is_file() {
+            return true;
+        }
+        for ext in exts {
+            if dir.join(format!("{bin}{ext}")).is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
 
-    matches!(probe, Ok(out) if out.status.success())
+#[cfg(not(target_os = "windows"))]
+fn is_in_path_unix(bin: &str, dirs: &[PathBuf]) -> bool {
+    dirs.iter().any(|dir| dir.join(bin).is_file())
 }
 
 fn build_role_prompt(

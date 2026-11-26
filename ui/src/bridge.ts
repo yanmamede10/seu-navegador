@@ -292,6 +292,7 @@ export type BridgeEvent =
   | { type: "downloads"; items: DownloadItem[] }
   | { type: "permissionPrompt"; prompt_id: number; origin: string; permission: string }
   | { type: "studioWorkspace"; workspace: StudioWorkspaceSummary }
+  | { type: "studioGit"; git: StudioGitSummary }
   | { type: "studioTerminal"; snapshot: StudioTerminalSnapshot }
   | { type: "studioAgentUpdate"; run: AgentRunSnapshot }
   | { type: "studioQaSnapshot"; snapshot: BrowserQaSnapshot }

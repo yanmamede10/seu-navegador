@@ -549,6 +549,7 @@ pub enum HostEffect {
         selector: String,
         value: Option<String>,
     },
+    StudioRefreshGit,
 }
 
 pub struct DispatchOutput {
@@ -1599,7 +1600,7 @@ pub fn dispatch_request(
             core.settings.studio_last_workspace = Some(summary.root_path.clone());
             Ok(DispatchOutput {
                 response: BridgeResponse::StudioWorkspace(Some(summary)),
-                effects: vec![HostEffect::BroadcastSettings],
+                effects: vec![HostEffect::BroadcastSettings, HostEffect::StudioRefreshGit],
             })
         }
         BridgeRequest::StudioGetWorkspace => {
@@ -1609,9 +1610,14 @@ pub fn dispatch_request(
                 }
             }
             let summary = studio.workspace_summary().ok();
+            let effects = if summary.is_some() {
+                vec![HostEffect::StudioRefreshGit]
+            } else {
+                Vec::new()
+            };
             Ok(DispatchOutput {
                 response: BridgeResponse::StudioWorkspace(summary),
-                effects: Vec::new(),
+                effects,
             })
         }
         BridgeRequest::StudioListDir { rel_path } => {
