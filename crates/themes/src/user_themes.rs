@@ -20,7 +20,7 @@ const MAX_PACKAGE_FILES: usize = 200;
 const MAX_PACKAGE_UNCOMPRESSED_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_FONT_BYTES: usize = 2 * 1024 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SaveUserThemeInput {
     pub id: String,
     pub name: String,
@@ -34,7 +34,7 @@ pub struct SaveUserThemeInput {
     pub extra_newtab_css: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ImportedFontResult {
     pub family: String,
     pub filename: String,
