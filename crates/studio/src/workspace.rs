@@ -84,12 +84,13 @@ pub fn resolve_inside_workspace(
     rel_path: &str,
     must_exist: bool,
 ) -> Result<PathBuf, WorkspaceError> {
+    let canon_root = fs::canonicalize(root)?;
     let clean_rel = rel_path
         .trim()
         .trim_start_matches(['/', '\\'])
         .replace('\\', "/");
 
-    let mut joined = root.to_path_buf();
+    let mut joined = canon_root.clone();
     for comp in Path::new(&clean_rel).components() {
         match comp {
             Component::Normal(seg) => joined.push(seg),
@@ -102,7 +103,7 @@ pub fn resolve_inside_workspace(
 
     if must_exist {
         let canon = fs::canonicalize(&joined)?;
-        if !canon.starts_with(root) {
+        if !canon.starts_with(&canon_root) {
             return Err(WorkspaceError::PathOutsideWorkspace);
         }
         return Ok(canon);
@@ -117,7 +118,7 @@ pub fn resolve_inside_workspace(
         ancestor = parent;
     }
     let canon_ancestor = fs::canonicalize(ancestor)?;
-    if !canon_ancestor.starts_with(root) {
+    if !canon_ancestor.starts_with(&canon_root) {
         return Err(WorkspaceError::PathOutsideWorkspace);
     }
     Ok(joined)
