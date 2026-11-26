@@ -86,6 +86,7 @@ function addActionButton(iconClass: string, label: string, onClick: () => void):
 }
 
 function renderActivePanel(): void {
+  const prevScroll = menuList.scrollTop;
   if (currentPanel === "memory") {
     renderMemoryPopover();
   } else if (currentPanel === "blocker") {
@@ -94,6 +95,9 @@ function renderActivePanel(): void {
     renderPermissionPrompt();
   } else {
     renderMenu();
+  }
+  if (prevScroll > 0) {
+    menuList.scrollTop = prevScroll;
   }
 }
 

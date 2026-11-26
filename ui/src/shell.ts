@@ -237,11 +237,14 @@ document.addEventListener("mousedown", (ev) => {
   void callBridge("overlay.close", { window_id: windowId });
 });
 
+let lastReportedShellHeight = 0;
+
 function reportShellHeight(): void {
   const dpr = window.devicePixelRatio || 1;
   const cssHeight = mountEl.getBoundingClientRect().height || mountEl.offsetHeight;
   const physicalHeight = Math.ceil(cssHeight * dpr);
-  if (physicalHeight > 0) {
+  if (physicalHeight > 0 && physicalHeight !== lastReportedShellHeight) {
+    lastReportedShellHeight = physicalHeight;
     void callBridge("windows.setShellBounds", {
       window_id: windowId,
       height: physicalHeight,

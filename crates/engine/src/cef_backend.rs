@@ -1351,7 +1351,16 @@ fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: 
             width: overlay_bounds.width,
             height: overlay_bounds.height,
         };
-        engine.show_overlay(window_id, updated, "menu");
+        let overlay = state.lock().ok().and_then(|mut g| {
+            let win = g.windows.get_mut(&window_id)?;
+            win.overlay_bounds = updated;
+            win.overlay.clone()
+        });
+        if let Some(b) = overlay {
+            if let Some(host) = b.host() {
+                apply_child_hwnd_visibility(host.window_handle(), true, Some(updated), true);
+            }
+        }
     }
 }
 
@@ -1624,12 +1633,20 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::CloseWindow { window_id } => host.close_window(window_id),
             HostEffect::StartWindowDrag { window_id } => host.start_window_drag(window_id),
             HostEffect::SetShellHeight { window_id, height } => {
-                if let Ok(mut g) = state.lock() {
-                    if let Some(w) = g.windows.get_mut(&window_id) {
-                        w.shell_height = height as i32;
-                    }
-                }
-                if let Some((_, rect)) = host.get_window_rect(window_id) {
+                let changed = state
+                    .lock()
+                    .ok()
+                    .and_then(|mut g| {
+                        let w = g.windows.get_mut(&window_id)?;
+                        let next_h = height as i32;
+                        if w.shell_height == next_h {
+                            return Some(false);
+                        }
+                        w.shell_height = next_h;
+                        Some(true)
+                    })
+                    .unwrap_or(false);
+                if let (true, Some((_, rect))) = (changed, host.get_window_rect(window_id)) {
                     relayout_window(state, window_id, rect.width, rect.height);
                 }
             }
