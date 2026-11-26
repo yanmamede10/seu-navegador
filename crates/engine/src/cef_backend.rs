@@ -2461,6 +2461,30 @@ wrap_browser_process_handler! {
     }
 }
 
+const EARLY_MEDIA_SESSION_SHIM: &str = r#"(function(){
+  if (window.__seuMediaEarlyHook) return;
+  var handlers = Object.create(null);
+  try {
+    Object.defineProperty(window, '__seuMediaEarlyHook', {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: handlers
+    });
+    var ms = navigator && navigator.mediaSession;
+    if (ms && typeof ms.setActionHandler === 'function') {
+      var origSet = ms.setActionHandler.bind(ms);
+      ms.setActionHandler = function(action, fn) {
+        try {
+          if (typeof fn === 'function') handlers[action] = fn;
+          else delete handlers[action];
+        } catch(_) {}
+        return origSet(action, fn);
+      };
+    }
+  } catch(_) {}
+})();"#;
+
 wrap_render_process_handler! {
     struct SeuRenderProcessHandler {
         router: Arc<RendererSideRouter>,
@@ -2480,6 +2504,15 @@ wrap_render_process_handler! {
 
             // Strict security boundary: only `seu://` origins receive the bridge.
             if !is_privileged_origin(&frame_url) {
+                if let Some(f) = frame {
+                    if f.is_main() != 0
+                        && (frame_url.starts_with("http://") || frame_url.starts_with("https://"))
+                    {
+                        let early = CefString::from(EARLY_MEDIA_SESSION_SHIM);
+                        let script_url = CefString::from("seu://internal/media-doc-start");
+                        f.execute_java_script(Some(&early), Some(&script_url), 0);
+                    }
+                }
                 return;
             }
 
@@ -4081,23 +4114,25 @@ fn build_media_session_shim(token: &str) -> String {
   window.__seuMediaShimInstalled = true;
   var TOKEN = "{token}";
   var PREFIX = "__SEU_MEDIA__" + TOKEN + ":";
-  var handlers = Object.create(null);
+  var handlers = window.__seuMediaEarlyHook || Object.create(null);
   var lastKey = "";
   var emitTimer = null;
 
-  try {{
-    var ms = navigator && navigator.mediaSession;
-    if (ms && typeof ms.setActionHandler === 'function') {{
-      var origSet = ms.setActionHandler.bind(ms);
-      ms.setActionHandler = function(action, fn) {{
-        try {{
-          if (typeof fn === 'function') handlers[action] = fn;
-          else delete handlers[action];
-        }} catch(_) {{}}
-        return origSet(action, fn);
-      }};
-    }}
-  }} catch(_) {{}}
+  if (!window.__seuMediaEarlyHook) {{
+    try {{
+      var ms = navigator && navigator.mediaSession;
+      if (ms && typeof ms.setActionHandler === 'function') {{
+        var origSet = ms.setActionHandler.bind(ms);
+        ms.setActionHandler = function(action, fn) {{
+          try {{
+            if (typeof fn === 'function') handlers[action] = fn;
+            else delete handlers[action];
+          }} catch(_) {{}}
+          return origSet(action, fn);
+        }};
+      }}
+    }} catch(_) {{}}
+  }}
 
   function findPrimaryMedia() {{
     var list = [];
