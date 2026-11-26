@@ -43,9 +43,10 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, SetParent, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOZORDER,
-    SW_HIDE, SW_SHOW,
+    DestroyWindow, IsChild, SetParent, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE,
+    SWP_NOZORDER, SW_HIDE, SW_SHOWNA,
 };
 
 const CEF_EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
@@ -122,6 +123,7 @@ struct WindowViews {
     split_divider: Option<RectPx>,
     devtools_divider: Option<RectPx>,
     dragging_splitter: Option<SplitterAxis>,
+    pending_omnibox_focus: Option<Instant>,
     incognito: bool,
 }
 
@@ -279,6 +281,18 @@ impl CefEngine {
         handle_native_window_closed(state, window_id);
     }
 
+    pub fn focus_active_view(window_id: WindowId) {
+        let Some(state) = ENGINE_STATE.get() else {
+            return;
+        };
+        if currently_on(ThreadId::UI) == 0 {
+            let mut task = FocusActiveViewTask::new(state.clone(), window_id);
+            post_task(ThreadId::UI, Some(&mut task));
+            return;
+        }
+        focus_window_active_view(state, window_id, false);
+    }
+
     pub fn hit_test_splitter(window_id: WindowId, x: i32, y: i32) -> Option<SplitterAxis> {
         let state = ENGINE_STATE.get()?;
         let guard = state.lock().ok()?;
@@ -390,15 +404,15 @@ fn point_in_rect(x: i32, y: i32, r: RectPx) -> bool {
     x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
 }
 
-fn decorate_internal_url(url: &str, window_id: WindowId) -> String {
+fn decorate_internal_url(url: &str, window_id: WindowId, tab_id: TabId) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     match trimmed {
-        "seu://newtab" => format!("seu://newtab/?win={window_id}"),
-        "seu://settings" => format!("seu://settings/?win={window_id}"),
-        "seu://history" => format!("seu://history/?win={window_id}"),
-        "seu://bookmarks" => format!("seu://bookmarks/?win={window_id}"),
-        "seu://downloads" => format!("seu://downloads/?win={window_id}"),
-        "seu://studio" => format!("seu://studio/?win={window_id}"),
+        "seu://newtab" => format!("seu://newtab/?win={window_id}&tab={tab_id}"),
+        "seu://settings" => format!("seu://settings/?win={window_id}&tab={tab_id}"),
+        "seu://history" => format!("seu://history/?win={window_id}&tab={tab_id}"),
+        "seu://bookmarks" => format!("seu://bookmarks/?win={window_id}&tab={tab_id}"),
+        "seu://downloads" => format!("seu://downloads/?win={window_id}&tab={tab_id}"),
+        "seu://studio" => format!("seu://studio/?win={window_id}&tab={tab_id}"),
         _ => url.to_string(),
     }
 }
@@ -466,7 +480,7 @@ impl BrowserBackend for CefEngine {
         } else {
             None
         };
-        let target_url = decorate_internal_url(url, window_id);
+        let target_url = decorate_internal_url(url, window_id, tab_id);
         spawn_child_browser(
             self.state.clone(),
             ViewKind::Tab { window_id, tab_id },
@@ -480,17 +494,29 @@ impl BrowserBackend for CefEngine {
     fn navigate_tab(&self, tab_id: TabId, url: &str) {
         // Release the state lock BEFORE calling CEF, because `load_url` can synchronously
         // trigger `on_before_browse` / `on_loading_state_change` on the UI thread.
-        let nav = self.state.lock().ok().and_then(|guard| {
+        let nav = self.state.lock().ok().and_then(|mut guard| {
             let browser = guard.tab_browsers.get(&tab_id)?.clone();
             let win_id = guard.core.get_tab(tab_id).map(|t| t.window_id).unwrap_or(1);
-            let target = decorate_internal_url(url, win_id);
-            Some((browser, target))
+            let is_visible = guard
+                .core
+                .window_snapshot(win_id)
+                .ok()
+                .map(|s| s.active_tab_id == Some(tab_id) || s.split_tab_id == Some(tab_id))
+                .unwrap_or(false);
+            if let (true, Some(w)) = (is_visible, guard.windows.get_mut(&win_id)) {
+                w.pending_omnibox_focus = None;
+            }
+            let target = decorate_internal_url(url, win_id, tab_id);
+            Some((browser, target, is_visible))
         });
 
-        if let Some((browser, target)) = nav {
+        if let Some((browser, target, is_visible)) = nav {
             if let Some(frame) = browser.main_frame() {
                 let cef_url = CefString::from(target.as_str());
                 frame.load_url(Some(&cef_url));
+            }
+            if is_visible {
+                focus_browser_view(&browser);
             }
         }
     }
@@ -606,8 +632,8 @@ impl BrowserBackend for CefEngine {
         if let Some(b) = overlay {
             if let Some(host) = b.host() {
                 apply_child_hwnd_visibility(host.window_handle(), true, Some(bounds), true);
-                host.set_focus(1);
             }
+            focus_browser_view(&b);
             push_js_event(
                 &b,
                 &serde_json::json!({ "type": "overlay", "panel": panel }),
@@ -628,6 +654,14 @@ impl BrowserBackend for CefEngine {
                 (win.overlay.clone(), win.shell.clone())
             })
             .unwrap_or((None, None));
+        let overlay_had_focus = overlay
+            .as_ref()
+            .and_then(|b| b.host())
+            .map(|h| hwnd_owns_focus(h.window_handle()))
+            .unwrap_or(false);
+        if overlay_had_focus {
+            focus_window_active_view(&self.state, window_id, false);
+        }
         if let Some(b) = overlay {
             if let Some(host) = b.host() {
                 apply_child_hwnd_visibility(host.window_handle(), false, None, false);
@@ -709,6 +743,61 @@ fn spawn_child_browser(
     Ok(())
 }
 
+fn focus_browser_view(browser: &Browser) {
+    if let Some(host) = browser.host() {
+        let hwnd: HWND = host.window_handle().0.cast();
+        if !hwnd.is_null() {
+            unsafe {
+                let _ = SetFocus(hwnd);
+            }
+        }
+        host.set_focus(1);
+    }
+}
+
+fn hwnd_owns_focus(raw_hwnd: sys::cef_window_handle_t) -> bool {
+    let hwnd: HWND = raw_hwnd.0.cast();
+    if hwnd.is_null() {
+        return false;
+    }
+    unsafe {
+        let focused = GetFocus();
+        !focused.is_null() && (focused == hwnd || IsChild(hwnd, focused) != 0)
+    }
+}
+
+fn focus_window_active_view(
+    state: &Arc<Mutex<SharedState>>,
+    window_id: WindowId,
+    ignore_pending_omnibox: bool,
+) {
+    let target = state.lock().ok().and_then(|g| {
+        let win = g.windows.get(&window_id)?;
+        if let (true, Some(ov)) = (win.overlay_open, win.overlay.clone()) {
+            return Some(ov);
+        }
+        let keep_omnibox = !ignore_pending_omnibox
+            && win
+                .pending_omnibox_focus
+                .is_some_and(|at| at.elapsed() < Duration::from_millis(650));
+        if let (true, Some(sh)) = (keep_omnibox, win.shell.clone()) {
+            return Some(sh);
+        }
+        let active_tab = g
+            .core
+            .window_snapshot(window_id)
+            .ok()
+            .and_then(|s| s.active_tab_id);
+        active_tab
+            .and_then(|tid| g.tab_browsers.get(&tid).cloned())
+            .or_else(|| win.shell.clone())
+    });
+
+    if let Some(browser) = target {
+        focus_browser_view(&browser);
+    }
+}
+
 fn apply_child_hwnd_visibility(
     raw_hwnd: sys::cef_window_handle_t,
     visible: bool,
@@ -740,7 +829,7 @@ fn apply_child_hwnd_visibility(
                 flags,
             );
         }
-        ShowWindow(hwnd, if visible { SW_SHOW } else { SW_HIDE });
+        ShowWindow(hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
     }
 }
 
@@ -1207,14 +1296,38 @@ fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: 
         }
     }
 
+    // Show visible tabs FIRST so we can transfer Win32 focus before hiding any focused background tab.
+    let mut tabs_to_hide = Vec::new();
     for tid in all_tab_ids {
         if Some(tid) == active_tab_id {
             engine.set_tab_visible(tid, true, Some(left_rect));
         } else if Some(tid) == split_tab_id && right_rect.is_some() {
             engine.set_tab_visible(tid, true, right_rect);
         } else {
-            engine.set_tab_visible(tid, false, None);
+            tabs_to_hide.push(tid);
         }
+    }
+
+    let hiding_focused_tab = state
+        .lock()
+        .ok()
+        .map(|g| {
+            tabs_to_hide.iter().any(|tid| {
+                g.tab_browsers
+                    .get(tid)
+                    .and_then(|b| b.host())
+                    .map(|h| hwnd_owns_focus(h.window_handle()))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+
+    if hiding_focused_tab {
+        focus_window_active_view(state, window_id, false);
+    }
+
+    for tid in tabs_to_hide {
+        engine.set_tab_visible(tid, false, None);
     }
 
     if let Some(dt) = devtools_browser {
@@ -1333,6 +1446,9 @@ fn close_devtools_for_window(state: &Arc<Mutex<SharedState>>, window_id: WindowI
     }
     if let Some(dt) = dt_browser {
         if let Some(h) = dt.host() {
+            if hwnd_owns_focus(h.window_handle()) {
+                focus_window_active_view(state, window_id, false);
+            }
             h.close_browser(1);
         }
     }
@@ -1376,6 +1492,7 @@ fn create_full_browser_window(
                 split_divider: None,
                 devtools_divider: None,
                 dragging_splitter: None,
+                pending_omnibox_focus: None,
                 incognito,
             },
         );
@@ -1553,8 +1670,24 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
                 if let Some((_, rect)) = host.get_window_rect(window_id) {
                     relayout_window(state, window_id, rect.width, rect.height);
                 }
+                focus_window_active_view(state, window_id, false);
             }
-            HostEffect::CloseTabView { tab_id, .. } => engine.close_tab_view(tab_id),
+            HostEffect::CloseTabView { window_id, tab_id } => {
+                let closing_focused = state
+                    .lock()
+                    .ok()
+                    .and_then(|g| {
+                        g.tab_browsers
+                            .get(&tab_id)
+                            .and_then(|b| b.host())
+                            .map(|h| hwnd_owns_focus(h.window_handle()))
+                    })
+                    .unwrap_or(false);
+                if closing_focused {
+                    focus_window_active_view(state, window_id, false);
+                }
+                engine.close_tab_view(tab_id);
+            }
             HostEffect::SleepTabView { tab_id, .. } => {
                 sleep_tab_browser(state, tab_id);
             }
@@ -1626,14 +1759,13 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::GoBackTabView { tab_id } => engine.go_back(tab_id),
             HostEffect::GoForwardTabView { tab_id } => engine.go_forward(tab_id),
             HostEffect::FocusOmnibox { window_id } => {
-                let shell = state
-                    .lock()
-                    .ok()
-                    .and_then(|g| g.windows.get(&window_id).and_then(|w| w.shell.clone()));
+                let shell = state.lock().ok().and_then(|mut g| {
+                    let w = g.windows.get_mut(&window_id)?;
+                    w.pending_omnibox_focus = Some(Instant::now());
+                    w.shell.clone()
+                });
                 if let Some(s) = shell {
-                    if let Some(h) = s.host() {
-                        h.set_focus(1);
-                    }
+                    focus_browser_view(&s);
                     push_js_event(&s, &serde_json::json!({ "type": "focusOmnibox" }));
                 }
             }
@@ -2649,6 +2781,30 @@ wrap_life_span_handler! {
                 if let Some(host) = browser.host() {
                     apply_child_hwnd_visibility(host.window_handle(), visible, None, false);
                 }
+                if let (true, ViewKind::Tab { window_id, tab_id }) = (visible, self.kind) {
+                    let should_focus = self
+                        .state
+                        .lock()
+                        .ok()
+                        .map(|g| {
+                            let is_active = g
+                                .core
+                                .window_snapshot(window_id)
+                                .ok()
+                                .and_then(|s| s.active_tab_id)
+                                == Some(tab_id);
+                            let omnibox_pending = g
+                                .windows
+                                .get(&window_id)
+                                .and_then(|w| w.pending_omnibox_focus)
+                                .is_some_and(|at| at.elapsed() < Duration::from_millis(650));
+                            is_active && !omnibox_pending
+                        })
+                        .unwrap_or(false);
+                    if should_focus {
+                        focus_browser_view(&browser);
+                    }
+                }
             }
 
             if let ViewKind::DevTools(wid) = self.kind {
@@ -2841,6 +2997,19 @@ wrap_task! {
 }
 
 wrap_task! {
+    struct FocusActiveViewTask {
+        state: Arc<Mutex<SharedState>>,
+        window_id: WindowId,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            focus_window_active_view(&self.state, self.window_id, false);
+        }
+    }
+}
+
+wrap_task! {
     struct ExecuteEffectsTask {
         state: Arc<Mutex<SharedState>>,
         effects: Arc<Mutex<Option<Vec<HostEffect>>>>,
@@ -2914,7 +3083,7 @@ wrap_keyboard_handler! {
             browser: Option<&mut Browser>,
             event: Option<&KeyEvent>,
             _os_event: Option<&mut sys::MSG>,
-            _is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
+            is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
             let Some(ev) = event else {
                 return 0;
@@ -2934,6 +3103,9 @@ wrap_keyboard_handler! {
                     .and_then(|g| g.windows.get(&wid).map(|w| w.overlay_open))
                     .unwrap_or(false);
                 if overlay_open {
+                    if let Some(flag) = is_keyboard_shortcut {
+                        *flag = 1;
+                    }
                     let mut task = CloseOverlayTask::new(self.state.clone(), wid);
                     post_task(ThreadId::UI, Some(&mut task));
                     return 1;
@@ -2964,6 +3136,9 @@ wrap_keyboard_handler! {
             });
 
             if let Some(action) = matched {
+                if let Some(flag) = is_keyboard_shortcut {
+                    *flag = 1;
+                }
                 let mut task = ExecuteShortcutTask::new(self.state.clone(), wid, action);
                 post_task(ThreadId::UI, Some(&mut task));
                 return 1;
@@ -3033,6 +3208,9 @@ wrap_task! {
                                 HostEffect::ActivateTabView {
                                     window_id: self.window_id,
                                     tab_id: tid,
+                                },
+                                HostEffect::FocusOmnibox {
+                                    window_id: self.window_id,
                                 },
                                 HostEffect::BroadcastState {
                                     window_id: self.window_id,

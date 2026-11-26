@@ -1,6 +1,7 @@
 import "./icons";
 import {
   callBridge,
+  getTabIdFromQuery,
   getWindowIdFromQuery,
   onBridgeEvent,
   type BlockerStats,
@@ -14,7 +15,32 @@ import { DeclarativeRuntime, type RepeatItem } from "./declarative";
 import { setLocale, t } from "./i18n";
 
 const windowId = getWindowIdFromQuery();
+const selfTabIdFromUrl = getTabIdFromQuery();
 const mountEl = document.getElementById("theme-mount") as HTMLDivElement;
+
+async function resolveOwnTabId(): Promise<number | null> {
+  if (selfTabIdFromUrl !== null) {
+    return selfTabIdFromUrl;
+  }
+  const snap =
+    currentSnapshot ??
+    (await callBridge<WindowSnapshot>("windows.getSnapshot", {
+      window_id: windowId,
+    }).catch(() => undefined));
+  if (!snap) return null;
+  if (snap.split_tab_id) {
+    const splitTab = snap.tabs.find((tab) => tab.id === snap.split_tab_id);
+    if (splitTab?.url.startsWith("seu://newtab/")) {
+      return splitTab.id;
+    }
+  }
+  const activeTab = snap.tabs.find((tab) => tab.id === snap.active_tab_id);
+  if (activeTab?.url.startsWith("seu://newtab/")) {
+    return activeTab.id;
+  }
+  const anyNewTab = snap.tabs.find((tab) => tab.url.startsWith("seu://newtab/"));
+  return anyNewTab?.id ?? snap.active_tab_id ?? null;
+}
 
 type SearchCategoryId = "web" | "videos" | "images" | "code" | "docs";
 
@@ -70,14 +96,10 @@ const runtime = new DeclarativeRuntime(mountEl, {
     if (!query) return;
 
     void (async () => {
-      const snap =
-        currentSnapshot ??
-        (await callBridge<WindowSnapshot>("windows.getSnapshot", {
-          window_id: windowId,
-        }).catch(() => undefined));
-      if (snap?.active_tab_id) {
+      const targetTabId = await resolveOwnTabId();
+      if (targetTabId !== null) {
         await callBridge("search.submit", {
-          tab_id: snap.active_tab_id,
+          tab_id: targetTabId,
           query,
           category: activeCategory,
         });
@@ -126,14 +148,10 @@ const runtime = new DeclarativeRuntime(mountEl, {
       case "tabs.navigate":
         if (param) {
           void (async () => {
-            const snap =
-              currentSnapshot ??
-              (await callBridge<WindowSnapshot>("windows.getSnapshot", {
-                window_id: windowId,
-              }).catch(() => undefined));
-            if (snap?.active_tab_id) {
+            const targetTabId = await resolveOwnTabId();
+            if (targetTabId !== null) {
               await callBridge("tabs.navigate", {
-                tab_id: snap.active_tab_id,
+                tab_id: targetTabId,
                 input: param,
               });
             }
@@ -141,12 +159,15 @@ const runtime = new DeclarativeRuntime(mountEl, {
         }
         break;
       case "tabs.navigateThemes":
-        if (currentSnapshot?.active_tab_id) {
-          void callBridge("tabs.navigate", {
-            tab_id: currentSnapshot.active_tab_id,
-            input: "seu://themes",
-          });
-        }
+        void (async () => {
+          const targetTabId = await resolveOwnTabId();
+          if (targetTabId !== null) {
+            await callBridge("tabs.navigate", {
+              tab_id: targetTabId,
+              input: "seu://themes",
+            });
+          }
+        })();
         break;
       case "ui.dismissAlert":
         alertDismissed = true;

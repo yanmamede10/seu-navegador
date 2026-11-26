@@ -42,6 +42,8 @@ let sidebarVisible = true;
 let sidebarTab: "files" | "search" = "files";
 let searchQuery = "";
 let searchResults: StudioSearchMatch[] = [];
+let searchSubmitted = false;
+let searchLoading = false;
 let openBuffers: OpenBuffer[] = [];
 let activePath: string | null = null;
 let diffMode = false;
@@ -656,6 +658,9 @@ function render(): void {
     sIn.className = "studio-input";
     sIn.value = searchQuery;
     sIn.placeholder = l("Buscar no projeto...", "Search workspace...");
+    sIn.addEventListener("input", () => {
+      searchQuery = sIn.value;
+    });
     const sBtn = document.createElement("button");
     sBtn.type = "submit";
     sBtn.className = "studio-btn primary";
@@ -666,15 +671,65 @@ function render(): void {
       ev.preventDefault();
       searchQuery = sIn.value.trim();
       if (!searchQuery) return;
-      void callBridge<StudioSearchMatch[]>("studio.search", { query: searchQuery }).then((res) => {
-        searchResults = res ?? [];
+      if (!workspace) {
+        statusText = l("Abra uma pasta primeiro para buscar.", "Open a folder first to search.");
+        searchSubmitted = true;
+        searchResults = [];
         render();
-      });
+        return;
+      }
+      searchLoading = true;
+      searchSubmitted = true;
+      render();
+      void callBridge<StudioSearchMatch[]>("studio.search", { query: searchQuery })
+        .then((res) => {
+          searchLoading = false;
+          searchResults = Array.isArray(res) ? res : [];
+          statusText = l(
+            `${searchResults.length} resultado(s) para "${searchQuery}"`,
+            `${searchResults.length} match(es) for "${searchQuery}"`,
+          );
+          render();
+        })
+        .catch((err) => {
+          searchLoading = false;
+          searchResults = [];
+          statusText = err instanceof Error ? err.message : String(err);
+          render();
+        });
     });
     sidebar.appendChild(searchForm);
 
     const resScroll = document.createElement("div");
     resScroll.className = "tree-scroll";
+    if (!workspace) {
+      const msg = document.createElement("div");
+      msg.style.padding = "12px";
+      msg.style.fontSize = "12px";
+      msg.style.color = "var(--seu-text-muted)";
+      msg.textContent = l(
+        "Abra uma pasta acima para pesquisar nos arquivos do projeto.",
+        "Open a folder above to search across project files.",
+      );
+      resScroll.appendChild(msg);
+    } else if (searchLoading) {
+      const msg = document.createElement("div");
+      msg.style.padding = "12px";
+      msg.style.fontSize = "12px";
+      msg.style.color = "var(--seu-text-muted)";
+      msg.textContent = l("Buscando...", "Searching...");
+      resScroll.appendChild(msg);
+    } else if (searchSubmitted && searchResults.length === 0) {
+      const msg = document.createElement("div");
+      msg.style.padding = "12px";
+      msg.style.fontSize = "12px";
+      msg.style.color = "var(--seu-text-muted)";
+      msg.textContent = l(
+        `Nenhum resultado encontrado para "${searchQuery}".`,
+        `No matches found for "${searchQuery}".`,
+      );
+      resScroll.appendChild(msg);
+    }
     for (const m of searchResults) {
       const item = document.createElement("div");
       item.className = "search-match";
@@ -782,9 +837,9 @@ function render(): void {
       <i class="fa-solid fa-laptop-code fa-2x" style="color: var(--seu-accent)" aria-hidden="true"></i>
       <h2>${l("Seu Navegador Studio (IDE Leve)", "Seu Navegador Studio (Lightweight IDE)")}</h2>
       <p style="max-width:460px;font-size:13px;margin:0">${l(
-        "Abra uma pasta de projeto, edite com CodeMirror 6 herdando 100% do seu tema ativo e use o modo Split na barra superior para manter seu app ou documentação aberto ao lado.",
-        "Open a project folder, edit with CodeMirror 6 inheriting 100% of your active theme, and use Split mode in the top toolbar to keep your live app or docs side by side.",
-      )}</p>
+      "Abra uma pasta de projeto, edite com CodeMirror 6 herdando 100% do seu tema ativo e use o modo Split na barra superior para manter seu app ou documentação aberto ao lado.",
+      "Open a project folder, edit with CodeMirror 6 inheriting 100% of your active theme, and use Split mode in the top toolbar to keep your live app or docs side by side.",
+    )}</p>
     `;
     stage.appendChild(empty);
   }
@@ -1291,7 +1346,16 @@ onBridgeEvent((event) => {
         git_status: statusMap.get(e.rel_path) ?? null,
       }));
       dirCache.set("", workspace.entries);
-      render();
+      // Avoid stealing focus or wiping text if the user is actively typing in an input/textarea.
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === "INPUT" || activeTag === "TEXTAREA") {
+        const pillSpan = root.querySelector(".studio-git-pill span");
+        if (pillSpan && event.git.is_repo) {
+          pillSpan.textContent = `${event.git.branch} (${event.git.changed_files.length})`;
+        }
+      } else {
+        render();
+      }
     }
   } else if (event.type === "studioTerminal") {
     terminalSnap = event.snapshot;
@@ -1346,7 +1410,7 @@ async function bootstrap(): Promise<void> {
         render();
       }
     })
-    .catch(() => {});
+    .catch(() => { });
 
   void Promise.all([
     callBridge<DetectedLocalCli[]>("studio.detectClis").catch(() => []),

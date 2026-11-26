@@ -24,10 +24,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, CS_DBLCLKS, CS_HREDRAW,
     CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT,
     HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, IDC_SIZENS, IDC_SIZEWE, MINMAXINFO,
-    NCCALCSIZE_PARAMS, SC_MOVE, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    NCCALCSIZE_PARAMS, SC_KEYMENU, SC_MOVE, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
     SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_GETMINMAXINFO, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SETCURSOR, WM_SIZE, WM_SYSCOMMAND,
-    WNDCLASSEXW, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
+    WM_SYSCOMMAND, WNDCLASSEXW, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
 };
 
 const WINDOW_CLASS: &str = "SeuNavegadorFramelessWindow";
@@ -495,6 +495,21 @@ unsafe extern "system" fn wnd_proc(
             let window_id = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as WindowId;
             if window_id > 0 && CefEngine::end_splitter_drag(window_id) {
                 ReleaseCapture();
+                return 0;
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_SETFOCUS => {
+            let window_id = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as WindowId;
+            if window_id > 0 {
+                CefEngine::focus_active_view(window_id);
+            }
+            0
+        }
+        WM_SYSCOMMAND => {
+            // Prevent Alt-based browser shortcuts (Alt+Left, Alt+Right, Alt+E) from activating
+            // the hidden Win32 system menu loop and stealing keyboard focus from CEF.
+            if (wparam & 0xFFF0) == SC_KEYMENU as usize {
                 return 0;
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)

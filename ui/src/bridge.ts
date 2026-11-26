@@ -332,6 +332,12 @@ export function getWindowIdFromQuery(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
+export function getTabIdFromQuery(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = Number(params.get("tab"));
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
 const mockSnapshot: WindowSnapshot = {
   id: 1,
   incognito: false,

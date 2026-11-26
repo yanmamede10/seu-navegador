@@ -37,11 +37,21 @@ let currentBlocker: BlockerStats = {
 let activeOverlayPanel: "menu" | "memory" | "blocker" | null = null;
 let activeUrlBookmarked = false;
 
+function getNavTargetTab(snapshot: WindowSnapshot | null) {
+  if (!snapshot) return null;
+  const activeTab =
+    snapshot.tabs.find((tab) => tab.id === snapshot.active_tab_id) ?? null;
+  if (activeTab?.url.startsWith("seu://studio/") && snapshot.split_tab_id) {
+    const splitTab =
+      snapshot.tabs.find((tab) => tab.id === snapshot.split_tab_id) ?? null;
+    if (splitTab) return splitTab;
+  }
+  return activeTab;
+}
+
 async function refreshActiveBookmarkState(): Promise<void> {
-  const activeTab = currentSnapshot?.tabs.find(
-    (tab) => tab.id === currentSnapshot?.active_tab_id,
-  );
-  const url = activeTab?.url ?? "";
+  const navTab = getNavTargetTab(currentSnapshot);
+  const url = navTab?.url ?? "";
   if (!url || url.startsWith("seu://")) {
     activeUrlBookmarked = false;
     return;
@@ -60,12 +70,31 @@ const runtime = new DeclarativeRuntime(mountEl, {
     void callBridge("windows.maximize", { window_id: windowId });
   },
   onSubmit: (name, value) => {
-    if (name === "omnibox" && currentSnapshot?.active_tab_id) {
-      void callBridge("tabs.navigate", {
-        tab_id: currentSnapshot.active_tab_id,
-        input: value,
+    if (name !== "omnibox") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    void (async () => {
+      const snap =
+        currentSnapshot ??
+        (await callBridge<WindowSnapshot>("windows.getSnapshot", {
+          window_id: windowId,
+        }).catch(() => undefined));
+      const navTab = getNavTargetTab(snap ?? null);
+      if (navTab && !navTab.url.startsWith("seu://studio/")) {
+        await callBridge("tabs.navigate", {
+          tab_id: navTab.id,
+          input: trimmed,
+        });
+        return;
+      }
+      // In pure Studio-only mode, open the search/URL in a new browser tab without wiping Studio.
+      await callBridge("tabs.create", {
+        window_id: windowId,
+        url: trimmed,
+        activate: true,
       });
-    }
+    })();
   },
   onReorder: (collection, draggedId, toIndex) => {
     if (collection === "tabs") {
@@ -77,7 +106,8 @@ const runtime = new DeclarativeRuntime(mountEl, {
     }
   },
   onAction: ({ action, param, item }) => {
-    const activeTabId = currentSnapshot?.active_tab_id;
+    const navTab = getNavTargetTab(currentSnapshot);
+    const navTabId = navTab?.id;
     switch (action) {
       case "windows.minimize":
         void callBridge("windows.minimize", { window_id: windowId });
@@ -110,18 +140,18 @@ const runtime = new DeclarativeRuntime(mountEl, {
         }
         break;
       case "tabs.back":
-        if (activeTabId) {
-          void callBridge("tabs.back", { tab_id: activeTabId });
+        if (navTabId) {
+          void callBridge("tabs.back", { tab_id: navTabId });
         }
         break;
       case "tabs.forward":
-        if (activeTabId) {
-          void callBridge("tabs.forward", { tab_id: activeTabId });
+        if (navTabId) {
+          void callBridge("tabs.forward", { tab_id: navTabId });
         }
         break;
       case "tabs.reload":
-        if (activeTabId) {
-          void callBridge("tabs.reload", { tab_id: activeTabId });
+        if (navTabId) {
+          void callBridge("tabs.reload", { tab_id: navTabId });
         }
         break;
       case "tabGroups.toggleCollapse":
@@ -142,13 +172,10 @@ const runtime = new DeclarativeRuntime(mountEl, {
         toggleOverlayPanel("blocker");
         break;
       case "bookmarks.toggle": {
-        const activeTab = currentSnapshot?.tabs.find(
-          (tab) => tab.id === currentSnapshot?.active_tab_id,
-        );
-        if (activeTab && !activeTab.url.startsWith("seu://")) {
+        if (navTab && !navTab.url.startsWith("seu://")) {
           void callBridge<{ bookmarked: boolean }>("bookmarks.toggle", {
-            title: activeTab.title,
-            url: activeTab.url,
+            title: navTab.title,
+            url: navTab.url,
             parent_id: null,
           }).then((res) => {
             activeUrlBookmarked = Boolean(res?.bookmarked);
@@ -235,6 +262,7 @@ function renderAll(): void {
 
   const activeTab =
     currentSnapshot.tabs.find((tab) => tab.id === currentSnapshot?.active_tab_id) ?? null;
+  const navTab = getNavTargetTab(currentSnapshot);
 
   const isStudioActive = Boolean(activeTab?.url.startsWith("seu://studio/"));
   const uiMode =
@@ -300,10 +328,10 @@ function renderAll(): void {
         incognito: currentSnapshot.incognito,
       },
       activeTab: {
-        title: activeTab?.title ?? "nova aba",
-        url: activeTab?.url ?? "seu://newtab/",
-        can_go_back: activeTab?.can_go_back ?? false,
-        can_go_forward: activeTab?.can_go_forward ?? false,
+        title: navTab?.title ?? activeTab?.title ?? "nova aba",
+        url: navTab?.url ?? "seu://newtab/",
+        can_go_back: navTab?.can_go_back ?? false,
+        can_go_forward: navTab?.can_go_forward ?? false,
         bookmarkIcon: activeUrlBookmarked ? "fa-solid fa-star" : "fa-regular fa-star",
       },
       memory: {
@@ -314,8 +342,8 @@ function renderAll(): void {
       },
       blocker: {
         totalBlocked:
-          activeTab && !activeTab.url.startsWith("seu://")
-            ? (activeTab.blocked_count ?? 0)
+          navTab && !navTab.url.startsWith("seu://")
+            ? (navTab.blocked_count ?? 0)
             : currentBlocker.total_blocked,
       },
     },
@@ -325,11 +353,12 @@ function renderAll(): void {
     },
   );
 
-  if (activeTab) {
-    runtime.setInputValue(
-      "omnibox",
-      activeTab.url === "seu://newtab/" ? "" : activeTab.url,
-    );
+  if (navTab) {
+    const omniboxText =
+      navTab.url === "seu://newtab/" || navTab.url.startsWith("seu://studio/")
+        ? ""
+        : navTab.url;
+    runtime.setInputValue("omnibox", omniboxText);
   }
 
   requestAnimationFrame(() => reportShellHeight());
