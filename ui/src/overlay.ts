@@ -5,8 +5,10 @@ import {
   onBridgeEvent,
   type BlockerStats,
   type CoreSettings,
+  type GameModeStatus,
   type LoadedTheme,
   type MemoryStats,
+  type NowPlayingState,
   type WindowSnapshot,
 } from "./bridge";
 import { getLocale, setLocale, t } from "./i18n";
@@ -15,9 +17,20 @@ const windowId = getWindowIdFromQuery();
 const menuList = document.getElementById("menu-list") as HTMLDivElement;
 
 let openedAt = 0;
-let currentPanel: "menu" | "memory" | "blocker" | "permission" = "menu";
+let currentPanel: "menu" | "memory" | "blocker" | "media" | "permission" = "menu";
 let pendingPermission: { prompt_id: number; origin: string; permission: string } | null = null;
 let currentSnapshot: WindowSnapshot | null = null;
+let currentMedia: NowPlayingState = { active: null, sessions: [] };
+let currentGameMode: GameModeStatus = {
+  active: false,
+  trigger: null,
+  detected_process: null,
+  tabs_slept: 0,
+  ram_before_mb: 0,
+  ram_saved_mb: 0,
+  last_exit_saved_mb: 0,
+  last_exit_at_ms: 0,
+};
 let currentMemory: MemoryStats = {
   total_private_mb: 0,
   total_working_set_mb: 0,
@@ -91,6 +104,8 @@ function renderActivePanel(): void {
     renderMemoryPopover();
   } else if (currentPanel === "blocker") {
     renderBlockerPopover();
+  } else if (currentPanel === "media") {
+    renderMediaPopover();
   } else if (currentPanel === "permission") {
     renderPermissionPrompt();
   } else {
@@ -161,6 +176,73 @@ function renderMenu(): void {
   addActionButton("fa-solid fa-moon", t("menu.sleepInactive"), () => {
     void callBridge("memory.sleepInactive");
   });
+
+  const gmActive = currentGameMode.active || currentSettings.game_mode_enabled;
+  const gmMenuLabel = gmActive
+    ? l(
+        `Modo Jogo: ON (${currentGameMode.tabs_slept} abas dormindo)`,
+        `Game Mode: ON (${currentGameMode.tabs_slept} tabs sleeping)`,
+      )
+    : currentGameMode.last_exit_at_ms > 0 && currentGameMode.last_exit_saved_mb > 0
+      ? l(
+          `Modo Jogo: OFF (${currentGameMode.last_exit_saved_mb} MB devolvidos)`,
+          `Game Mode: OFF (${currentGameMode.last_exit_saved_mb} MB returned)`,
+        )
+      : l("Modo Jogo: OFF", "Game Mode: OFF");
+  addActionButton("fa-solid fa-gamepad", gmMenuLabel, () => {
+    void callBridge("gameMode.toggle");
+  });
+
+  if (currentMedia.active) {
+    const np = currentMedia.active;
+    const card = document.createElement("div");
+    card.className = "mem-stat-box";
+    card.style.margin = "4px 2px 6px";
+    card.style.padding = "8px";
+    card.style.display = "flex";
+    card.style.flexDirection = "column";
+    card.style.gap = "6px";
+
+    const head = document.createElement("div");
+    head.style.fontSize = "11px";
+    head.style.opacity = "0.8";
+    head.style.display = "flex";
+    head.style.justifyContent = "space-between";
+    head.innerHTML = `<span><i class="fa-solid fa-music" aria-hidden="true"></i> ${l("Tocando agora", "Now playing")}</span><span>${np.source}</span>`;
+    card.appendChild(head);
+
+    const titleEl = document.createElement("div");
+    titleEl.style.fontSize = "12px";
+    titleEl.style.fontWeight = "700";
+    titleEl.style.whiteSpace = "nowrap";
+    titleEl.style.overflow = "hidden";
+    titleEl.style.textOverflow = "ellipsis";
+    titleEl.textContent = np.artist ? `${np.title} — ${np.artist}` : np.title;
+    card.appendChild(titleEl);
+
+    const ctrls = document.createElement("div");
+    ctrls.className = "pill-row";
+    for (const [cmd, icon, aria] of [
+      ["prev", "fa-solid fa-backward-step", l("Anterior", "Previous")],
+      ["play-pause", np.playing ? "fa-solid fa-pause" : "fa-solid fa-play", np.playing ? l("Pausar", "Pause") : l("Reproduzir", "Play")],
+      ["next", "fa-solid fa-forward-step", l("Próximo", "Next")],
+      ["focus-tab", "fa-solid fa-arrow-up-right-from-square", l("Ir para aba", "Go to tab")],
+    ] as const) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pill-btn";
+      b.ariaLabel = aria;
+      b.innerHTML = `<i class="${icon}" aria-hidden="true"></i>`;
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        void callBridge("media.command", { tab_id: np.tab_id, command: cmd });
+        if (cmd === "focus-tab") closeOverlay();
+      });
+      ctrls.appendChild(b);
+    }
+    card.appendChild(ctrls);
+    menuList.appendChild(card);
+  }
 
   addActionButton("fa-solid fa-table-columns", t("menu.splitView"), () => {
     void callBridge("split.toggle", { window_id: windowId });
@@ -630,17 +712,101 @@ function renderPermissionPrompt(): void {
   menuList.appendChild(row);
 }
 
+function renderMediaPopover(): void {
+  menuList.innerHTML = "";
+  menuList.style.height = "100%";
+
+  const header = document.createElement("div");
+  header.className = "menu-label";
+  header.innerHTML = `<i class="fa-solid fa-music" aria-hidden="true"></i> ${l("Tocando agora", "Now Playing")}`;
+  menuList.appendChild(header);
+
+  if (currentMedia.sessions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "mem-stat-box";
+    empty.style.padding = "12px";
+    empty.style.fontSize = "12px";
+    empty.textContent = l(
+      "Nenhuma aba reproduzindo mídia no momento.",
+      "No tabs playing media right now.",
+    );
+    menuList.appendChild(empty);
+    return;
+  }
+
+  for (const s of currentMedia.sessions) {
+    const box = document.createElement("div");
+    box.className = "mem-stat-box";
+    box.style.padding = "10px";
+    box.style.marginBottom = "8px";
+    box.style.display = "flex";
+    box.style.flexDirection = "column";
+    box.style.gap = "6px";
+
+    const top = document.createElement("div");
+    top.style.display = "flex";
+    top.style.justifyContent = "space-between";
+    top.style.fontSize = "11px";
+    top.style.opacity = "0.8";
+    top.innerHTML = `<span>${s.source}</span><span>${s.playing ? l("Tocando", "Playing") : l("Pausado", "Paused")} · ${s.progress_pct}%</span>`;
+    box.appendChild(top);
+
+    const title = document.createElement("div");
+    title.style.fontSize = "12px";
+    title.style.fontWeight = "700";
+    title.textContent = s.artist ? `${s.title} — ${s.artist}` : s.title;
+    box.appendChild(title);
+
+    const bar = document.createElement("div");
+    bar.style.height = "4px";
+    bar.style.borderRadius = "999px";
+    bar.style.background = "var(--seu-border)";
+    bar.style.overflow = "hidden";
+    const fill = document.createElement("div");
+    fill.style.height = "100%";
+    fill.style.width = `${s.progress_pct}%`;
+    fill.style.background = "var(--seu-accent)";
+    bar.appendChild(fill);
+    box.appendChild(bar);
+
+    const row = document.createElement("div");
+    row.className = "pill-row";
+    for (const [cmd, icon, lbl] of [
+      ["prev", "fa-solid fa-backward-step", l("Anterior", "Prev")],
+      ["play-pause", s.playing ? "fa-solid fa-pause" : "fa-solid fa-play", s.playing ? l("Pausar", "Pause") : l("Tocar", "Play")],
+      ["next", "fa-solid fa-forward-step", l("Próximo", "Next")],
+      ["focus-tab", "fa-solid fa-arrow-up-right-from-square", l("Aba", "Tab")],
+    ] as const) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pill-btn";
+      btn.innerHTML = `<i class="${icon}" aria-hidden="true"></i> ${lbl}`;
+      btn.addEventListener("click", () => {
+        void callBridge("media.command", { tab_id: s.tab_id, command: cmd });
+        if (cmd === "focus-tab") closeOverlay();
+      });
+      row.appendChild(btn);
+    }
+    box.appendChild(row);
+    menuList.appendChild(box);
+  }
+}
+
 async function refreshSnapshotAndMemory(): Promise<void> {
-  const [snap, mem, blk] = await Promise.all([
+  const [snap, mem, blk, gm, np] = await Promise.all([
     callBridge<WindowSnapshot>("windows.getSnapshot", { window_id: windowId }).catch(
       () => undefined,
     ),
     callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
     callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
+    callBridge<GameModeStatus>("gameMode.get").catch(() => undefined),
+    callBridge<NowPlayingState>("media.nowPlaying").catch(() => undefined),
   ]);
   if (snap) currentSnapshot = snap;
   if (mem) currentMemory = mem;
   if (blk) currentBlocker = blk;
+  if (gm) currentGameMode = gm;
+  if (np) currentMedia = np;
   renderActivePanel();
 }
 
@@ -673,11 +839,19 @@ onBridgeEvent((event) => {
         ? "memory"
         : event.panel === "blocker"
           ? "blocker"
-          : "menu";
+          : event.panel === "media"
+            ? "media"
+            : "menu";
     void refreshSnapshotAndMemory();
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     if (currentPanel === "memory") renderActivePanel();
+  } else if (event.type === "gameMode") {
+    currentGameMode = event.status;
+    if (currentPanel === "menu") renderActivePanel();
+  } else if (event.type === "media") {
+    currentMedia = event.nowPlaying;
+    if (currentPanel === "media" || currentPanel === "menu") renderActivePanel();
   } else if (event.type === "blocker") {
     currentBlocker = event.stats;
     if (currentPanel === "blocker") renderActivePanel();
@@ -697,7 +871,7 @@ onBridgeEvent((event) => {
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, snap, mem, blk] = await Promise.all([
+    const [settings, theme, snap, mem, blk, gm, np] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<WindowSnapshot>("windows.getSnapshot", { window_id: windowId }).catch(
@@ -705,6 +879,8 @@ async function bootstrap(): Promise<void> {
       ),
       callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
       callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
+      callBridge<GameModeStatus>("gameMode.get").catch(() => undefined),
+      callBridge<NowPlayingState>("media.nowPlaying").catch(() => undefined),
     ]);
     if (settings) {
       currentSettings = settings;
@@ -721,6 +897,12 @@ async function bootstrap(): Promise<void> {
     }
     if (blk) {
       currentBlocker = blk;
+    }
+    if (gm) {
+      currentGameMode = gm;
+    }
+    if (np) {
+      currentMedia = np;
     }
   } catch {
     // Keep defaults.

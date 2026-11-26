@@ -8,6 +8,8 @@ pub mod metrics;
 
 #[cfg(target_os = "windows")]
 pub mod cef_backend;
+#[cfg(target_os = "windows")]
+pub mod game_detector;
 
 use seu_core::{TabId, WindowId};
 use std::path::PathBuf;

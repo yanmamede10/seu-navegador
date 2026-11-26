@@ -4,9 +4,16 @@
 //! By architectural contract (SPEC §12.1), this crate MUST NOT depend on CEF
 //! or Win32 so it can be shared with Android via UniFFI in the future.
 
+pub mod game_mode;
+pub mod media;
 pub mod memory;
 pub mod shortcuts;
 
+use game_mode::{
+    GameModeConfig, GameModeDetector, GameModeStatus, GameModeTransition, GameModeTrigger,
+    GameProbeSample,
+};
+use media::{MediaSessionInfo, NowPlayingState};
 use memory::{
     evaluate_sleep_eligibility, select_tabs_to_sleep, MemoryPolicy, MemoryStats, SleepBlockReason,
     TabMemoryMeta,
@@ -251,6 +258,8 @@ pub struct CoreSettings {
     pub site_skins_enabled: bool,
     #[serde(default)]
     pub allowed_site_script_themes: Vec<String>,
+    #[serde(default)]
+    pub game_mode_config: GameModeConfig,
 }
 
 fn default_true() -> bool {
@@ -273,6 +282,7 @@ impl Default for CoreSettings {
             studio_last_workspace: None,
             site_skins_enabled: true,
             allowed_site_script_themes: Vec::new(),
+            game_mode_config: GameModeConfig::default(),
         }
     }
 }
@@ -303,6 +313,9 @@ pub struct BrowserCore {
     window_order: Vec<WindowId>,
     tabs: HashMap<TabId, TabInfo>,
     tab_meta: HashMap<TabId, TabMemoryMeta>,
+    media_sessions: HashMap<TabId, MediaSessionInfo>,
+    game_mode_detector: GameModeDetector,
+    pub game_mode_status: GameModeStatus,
     pub memory_stats: MemoryStats,
     pub settings: CoreSettings,
 }
@@ -352,6 +365,7 @@ impl BrowserCore {
         for tab_id in &entry.tab_ids {
             self.tabs.remove(tab_id);
             self.tab_meta.remove(tab_id);
+            self.media_sessions.remove(tab_id);
         }
         self.recompute_tab_counts();
         Ok(entry.tab_ids)
@@ -515,6 +529,7 @@ impl BrowserCore {
             .remove(&tab_id)
             .ok_or(CoreError::TabNotFound(tab_id))?;
         self.tab_meta.remove(&tab_id);
+        self.media_sessions.remove(&tab_id);
         let window_id = tab.window_id;
         let win = self
             .windows
@@ -986,8 +1001,129 @@ impl BrowserCore {
     }
 
     pub fn toggle_game_mode(&mut self) -> bool {
-        self.settings.game_mode_enabled = !self.settings.game_mode_enabled;
-        self.settings.game_mode_enabled
+        let now_ms = unix_now_ms();
+        if self.settings.game_mode_enabled {
+            self.exit_game_mode(now_ms);
+            false
+        } else {
+            let _ = self.enter_game_mode(GameModeTrigger::Manual, None, now_ms);
+            true
+        }
+    }
+
+    pub fn enter_game_mode(
+        &mut self,
+        trigger: GameModeTrigger,
+        process: Option<String>,
+        now_ms: u64,
+    ) -> Vec<(WindowId, TabId)> {
+        self.settings.game_mode_enabled = true;
+        let ram_before = self.memory_stats.total_private_mb;
+        let due = self.select_due_sleep_tabs(now_ms, true);
+        let mut slept = Vec::new();
+        for tid in due {
+            if let Ok(wid) = self.mark_tab_sleeping(tid, false) {
+                self.media_sessions.remove(&tid);
+                slept.push((wid, tid));
+            }
+        }
+        self.game_mode_status = GameModeStatus {
+            active: true,
+            trigger: Some(trigger),
+            detected_process: process,
+            tabs_slept: slept.len(),
+            ram_before_mb: ram_before,
+            ram_saved_mb: 0,
+            last_exit_saved_mb: self.game_mode_status.last_exit_saved_mb,
+            last_exit_at_ms: self.game_mode_status.last_exit_at_ms,
+        };
+        slept
+    }
+
+    pub fn exit_game_mode(&mut self, now_ms: u64) {
+        self.settings.game_mode_enabled = false;
+        let computed = self
+            .game_mode_status
+            .ram_before_mb
+            .saturating_sub(self.memory_stats.total_private_mb);
+        let total_saved = self.game_mode_status.ram_saved_mb.max(computed);
+        self.game_mode_status.active = false;
+        self.game_mode_status.trigger = None;
+        self.game_mode_status.detected_process = None;
+        self.game_mode_status.ram_saved_mb = total_saved;
+        self.game_mode_status.last_exit_saved_mb = total_saved;
+        self.game_mode_status.last_exit_at_ms = now_ms;
+        self.game_mode_detector.reset();
+    }
+
+    pub fn set_game_mode_config(&mut self, config: GameModeConfig) {
+        self.settings.game_mode_config = config.sanitized();
+        if !self.settings.game_mode_config.auto_detect {
+            self.game_mode_detector.reset();
+        }
+    }
+
+    pub fn record_game_mode_ram_delta(&mut self, delta_mb: u32) {
+        if self.game_mode_status.active {
+            self.game_mode_status.ram_saved_mb =
+                self.game_mode_status.ram_saved_mb.saturating_add(delta_mb);
+        }
+    }
+
+    pub fn evaluate_game_probe(&mut self, sample: &GameProbeSample) -> GameModeTransition {
+        self.game_mode_detector.evaluate(
+            sample,
+            &self.settings.game_mode_config,
+            &self.game_mode_status,
+        )
+    }
+
+    pub fn update_tab_media(
+        &mut self,
+        tab_id: TabId,
+        info: Option<MediaSessionInfo>,
+    ) -> Option<WindowId> {
+        let wid = self.tabs.get(&tab_id)?.window_id;
+        let is_playing = info.as_ref().map(|m| m.playing).unwrap_or(false);
+        let changed = match info {
+            Some(session) => {
+                let prev = self.media_sessions.get(&tab_id);
+                let diff = prev != Some(&session);
+                self.media_sessions.insert(tab_id, session);
+                diff
+            }
+            None => self.media_sessions.remove(&tab_id).is_some(),
+        };
+        if let Some(tab) = self.tabs.get_mut(&tab_id) {
+            if tab.audible != is_playing {
+                tab.audible = is_playing;
+                return Some(wid);
+            }
+        }
+        if changed {
+            Some(wid)
+        } else {
+            None
+        }
+    }
+
+    pub fn clear_tab_media(&mut self, tab_id: TabId) {
+        self.media_sessions.remove(&tab_id);
+    }
+
+    pub fn now_playing(&self) -> NowPlayingState {
+        let live: Vec<MediaSessionInfo> = self
+            .media_sessions
+            .values()
+            .filter(|m| {
+                self.tabs
+                    .get(&m.tab_id)
+                    .map(|t| t.state != TabLifecycleState::Sleeping)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        NowPlayingState::from_sessions(live)
     }
 
     pub fn set_shortcut(&mut self, action_id: &str, combo: &str) -> Result<String, CoreError> {

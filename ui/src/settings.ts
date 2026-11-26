@@ -8,6 +8,8 @@ import {
   type CoreSettings,
   type DataSummaryPayload,
   type DetectedBrowserProfile,
+  type GameModeConfig,
+  type GameModeStatus,
   type ImportReport,
   type LoadedTheme,
   type MemoryPolicy,
@@ -22,7 +24,15 @@ import { setLocale } from "./i18n";
 const root = document.getElementById("settings-root") as HTMLDivElement;
 const windowId = getWindowIdFromQuery();
 
-type SettingsTab = "shortcuts" | "skins" | "memory" | "blocker" | "session" | "import" | "quick";
+type SettingsTab =
+  | "shortcuts"
+  | "skins"
+  | "gamemode"
+  | "memory"
+  | "blocker"
+  | "session"
+  | "import"
+  | "quick";
 
 let activeTab: SettingsTab = "shortcuts";
 let currentSettings: CoreSettings = {
@@ -67,6 +77,16 @@ let dataSummary: DataSummaryPayload = { bookmarks: [], history: [] };
 let savedPermissions: SitePermissionItem[] = [];
 let availableThemes: ThemeSummary[] = [];
 let pendingScriptOptInThemeId: string | null = null;
+let currentGameMode: GameModeStatus = {
+  active: false,
+  trigger: null,
+  detected_process: null,
+  tabs_slept: 0,
+  ram_before_mb: 0,
+  ram_saved_mb: 0,
+  last_exit_saved_mb: 0,
+  last_exit_at_ms: 0,
+};
 let recordingActionId: string | null = null;
 
 interface ShortcutMeta {
@@ -287,6 +307,7 @@ function render(): void {
   const tabDefs: [SettingsTab, string, string][] = [
     ["shortcuts", "fa-solid fa-keyboard", l("Atalhos", "Shortcuts")],
     ["skins", "fa-solid fa-wand-magic-sparkles", l("Skins de Sites", "Site Skins")],
+    ["gamemode", "fa-solid fa-gamepad", l("Modo Jogo", "Game Mode")],
     ["memory", "fa-solid fa-microchip", l("Memória", "Memory")],
     ["blocker", "fa-solid fa-shield-halved", l("Bloqueador", "Blocker")],
     ["session", "fa-solid fa-lock", l("Sessão & Permissões", "Session & Permissions")],
@@ -322,6 +343,8 @@ function render(): void {
     shell.appendChild(renderShortcutsPanel());
   } else if (activeTab === "skins") {
     shell.appendChild(renderSiteSkinsPanel());
+  } else if (activeTab === "gamemode") {
+    shell.appendChild(renderGameModePanel());
   } else if (activeTab === "memory") {
     shell.appendChild(renderMemoryPanel());
   } else if (activeTab === "blocker") {
@@ -1226,6 +1249,196 @@ function renderSiteSkinsPanel(): HTMLElement {
   return wrap;
 }
 
+function renderGameModePanel(): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "20px";
+
+  const cfg: GameModeConfig = currentSettings.game_mode_config ?? {
+    auto_detect: true,
+    debounce_secs: 6,
+    minimized_trigger_secs: 30,
+    game_executables: ["cs2.exe", "eldenring.exe", "valorant-win64-shipping.exe"],
+  };
+
+  const saveConfig = (next: GameModeConfig) => {
+    void callBridge<CoreSettings>("gameMode.setConfig", { config: next }).then((updated) => {
+      if (updated) currentSettings = updated;
+      statusMessage = {
+        text: l("Configurações do Modo Jogo salvas.", "Game Mode settings saved."),
+        isError: false,
+      };
+      render();
+    });
+  };
+
+  const statusCard = document.createElement("section");
+  statusCard.className = "panel-card";
+
+  const head = document.createElement("div");
+  head.className = "panel-head";
+  head.innerHTML = `<h2><i class="fa-solid fa-gamepad" aria-hidden="true"></i><span>${l("Modo Jogo", "Game Mode")}</span></h2>`;
+
+  const gmActive = currentGameMode.active || currentSettings.game_mode_enabled;
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = gmActive ? "btn btn-danger" : "btn btn-primary";
+  toggleBtn.dataset.testId = "gamemode-manual-toggle";
+  toggleBtn.innerHTML = gmActive
+    ? `<i class="fa-solid fa-power-off" aria-hidden="true"></i><span>${l("Desativar Modo Jogo", "Turn off Game Mode")}</span>`
+    : `<i class="fa-solid fa-bolt" aria-hidden="true"></i><span>${l("Ativar Modo Jogo agora", "Enable Game Mode now")}</span>`;
+  toggleBtn.addEventListener("click", () => {
+    void callBridge<CoreSettings>("gameMode.toggle").then((updated) => {
+      if (updated) currentSettings = updated;
+      void callBridge<GameModeStatus>("gameMode.get").then((st) => {
+        if (st) currentGameMode = st;
+        render();
+      });
+    });
+  });
+  head.appendChild(toggleBtn);
+  statusCard.appendChild(head);
+
+  const info = document.createElement("p");
+  info.className = "muted";
+  info.textContent = gmActive
+    ? l(
+        `ATIVO (${currentGameMode.detected_process ?? currentGameMode.trigger ?? "manual"}) · ${currentGameMode.tabs_slept} abas colocadas para dormir · ${currentGameMode.ram_saved_mb} MB devolvidos.`,
+        `ACTIVE (${currentGameMode.detected_process ?? currentGameMode.trigger ?? "manual"}) · ${currentGameMode.tabs_slept} tabs slept · ${currentGameMode.ram_saved_mb} MB returned.`,
+      )
+    : currentGameMode.last_exit_at_ms > 0
+      ? l(
+          `Inativo. Última sessão: ${currentGameMode.last_exit_saved_mb} MB devolvidos durante o jogo (abas mantidas dormindo para não consumir RAM).`,
+          `Inactive. Last session: ${currentGameMode.last_exit_saved_mb} MB returned during gaming (tabs kept sleeping to preserve RAM).`,
+        )
+      : l(
+          "Ao entrar no Modo Jogo, todas as abas elegíveis dormem instantaneamente (respeitando áudio, formulários e sites protegidos). Ao sair, as abas não acordam sozinhas.",
+          "Entering Game Mode sleeps all eligible tabs immediately (protecting audio, dirty forms, and allowlisted domains). Exiting never auto-wakes tabs.",
+        );
+  statusCard.appendChild(info);
+
+  const checks = document.createElement("div");
+  checks.className = "checks-row";
+  checks.appendChild(
+    makeCheckbox(
+      l(
+        "Detecção automática (Direct3D fullscreen + Borderless excluindo o Seu Navegador + lista .exe)",
+        "Auto-detection (Direct3D fullscreen + Borderless excluding Seu Navegador + .exe list)",
+      ),
+      cfg.auto_detect,
+      (v) => saveConfig({ ...cfg, auto_detect: v }),
+    ),
+  );
+  statusCard.appendChild(checks);
+
+  const debounceTitle = document.createElement("div");
+  debounceTitle.className = "shortcut-group-title";
+  debounceTitle.textContent = l(
+    "Debounce de detecção em tela cheia (evita falsos positivos)",
+    "Fullscreen detection debounce (prevents false positives)",
+  );
+  statusCard.appendChild(debounceTitle);
+
+  const debounceRow = document.createElement("div");
+  debounceRow.className = "settings-tabs";
+  for (const secs of [5, 6, 8, 10]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `tab-btn${cfg.debounce_secs === secs ? " active" : ""}`;
+    b.textContent = `${secs}s`;
+    b.addEventListener("click", () => saveConfig({ ...cfg, debounce_secs: secs }));
+    debounceRow.appendChild(b);
+  }
+  statusCard.appendChild(debounceRow);
+
+  const minTitle = document.createElement("div");
+  minTitle.className = "shortcut-group-title";
+  minTitle.textContent = l(
+    "Ativar ao manter o navegador minimizado por:",
+    "Activate when browser stays minimized for:",
+  );
+  statusCard.appendChild(minTitle);
+
+  const minRow = document.createElement("div");
+  minRow.className = "settings-tabs";
+  for (const [secs, lbl] of [
+    [0, l("Desligado", "Off")],
+    [15, "15s"],
+    [30, "30s"],
+    [60, "60s"],
+  ] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `tab-btn${cfg.minimized_trigger_secs === secs ? " active" : ""}`;
+    b.textContent = lbl;
+    b.addEventListener("click", () => saveConfig({ ...cfg, minimized_trigger_secs: secs }));
+    minRow.appendChild(b);
+  }
+  statusCard.appendChild(minRow);
+  wrap.appendChild(statusCard);
+
+  // Configurable `.exe` list card
+  const exeCard = document.createElement("section");
+  exeCard.className = "panel-card";
+  exeCard.innerHTML = `<div class="panel-head"><h2><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>${l("Lista configurável de executáveis (.exe) de jogos", "Configurable game executables (.exe) list")}</span></h2></div>`;
+
+  const form = document.createElement("form");
+  form.className = "form-inline";
+  const exeInput = document.createElement("input");
+  exeInput.className = "text-input";
+  exeInput.placeholder = "ex: hollow_knight.exe";
+  exeInput.dataset.testId = "gamemode-exe-input";
+  const addBtn = document.createElement("button");
+  addBtn.type = "submit";
+  addBtn.className = "btn btn-primary";
+  addBtn.innerHTML = `<i class="fa-solid fa-plus" aria-hidden="true"></i><span>${l("Adicionar .exe", "Add .exe")}</span>`;
+  form.appendChild(exeInput);
+  form.appendChild(addBtn);
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const clean = exeInput.value
+      .trim()
+      .toLowerCase()
+      .split(/[\\/]/)
+      .pop() ?? "";
+    if (!clean) return;
+    const withExt = clean.endsWith(".exe") ? clean : `${clean}.exe`;
+    if (!cfg.game_executables.includes(withExt)) {
+      saveConfig({ ...cfg, game_executables: [...cfg.game_executables, withExt] });
+    }
+    exeInput.value = "";
+  });
+  exeCard.appendChild(form);
+
+  const exeList = document.createElement("div");
+  exeList.className = "shortcut-list";
+  for (const exe of cfg.game_executables) {
+    const row = document.createElement("div");
+    row.className = "shortcut-row";
+    const span = document.createElement("span");
+    span.className = "shortcut-name";
+    span.textContent = exe;
+    row.appendChild(span);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn btn-danger";
+    del.innerHTML = `<i class="fa-solid fa-trash" aria-hidden="true"></i>`;
+    del.addEventListener("click", () => {
+      saveConfig({
+        ...cfg,
+        game_executables: cfg.game_executables.filter((x) => x !== exe),
+      });
+    });
+    row.appendChild(del);
+    exeList.appendChild(row);
+  }
+  exeCard.appendChild(exeList);
+  wrap.appendChild(exeCard);
+
+  return wrap;
+}
+
 function renderSessionPermissionsPanel(): HTMLElement {
   const wrap = document.createElement("div");
   wrap.style.display = "flex";
@@ -1358,6 +1571,9 @@ onBridgeEvent((event) => {
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     if (activeTab === "memory") render();
+  } else if (event.type === "gameMode") {
+    currentGameMode = event.status;
+    if (activeTab === "gamemode") render();
   } else if (event.type === "blocker") {
     currentBlocker = event.stats;
     if (activeTab === "blocker") render();
@@ -1365,13 +1581,14 @@ onBridgeEvent((event) => {
 });
 
 async function bootstrap(): Promise<void> {
-  const [settings, theme, mem, blk, perms, themeList] = await Promise.all([
+  const [settings, theme, mem, blk, perms, themeList, gm] = await Promise.all([
     callBridge<CoreSettings>("settings.get").catch(() => undefined),
     callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
     callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
     callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
     callBridge<SitePermissionItem[]>("permissions.list").catch(() => []),
     callBridge<ThemeSummary[]>("themes.list").catch(() => []),
+    callBridge<GameModeStatus>("gameMode.get").catch(() => undefined),
   ]);
   if (settings) {
     currentSettings = settings;
@@ -1385,6 +1602,9 @@ async function bootstrap(): Promise<void> {
   }
   if (blk) {
     currentBlocker = blk;
+  }
+  if (gm) {
+    currentGameMode = gm;
   }
   savedPermissions = perms ?? [];
   availableThemes = Array.isArray(themeList) ? themeList : [];

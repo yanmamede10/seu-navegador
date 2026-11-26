@@ -6,8 +6,10 @@ import {
   onBridgeEvent,
   type BlockerStats,
   type CoreSettings,
+  type GameModeStatus,
   type LoadedTheme,
   type MemoryStats,
+  type NowPlayingState,
   type ThemeSummary,
   type WindowSnapshot,
 } from "./bridge";
@@ -88,6 +90,17 @@ let currentSettings: CoreSettings = {
   active_theme_id: "y2k-maximal",
   game_mode_enabled: false,
 };
+let currentMedia: NowPlayingState = { active: null, sessions: [] };
+let currentGameMode: GameModeStatus = {
+  active: false,
+  trigger: null,
+  detected_process: null,
+  tabs_slept: 0,
+  ram_before_mb: 0,
+  ram_saved_mb: 0,
+  last_exit_saved_mb: 0,
+  last_exit_at_ms: 0,
+};
 
 const runtime = new DeclarativeRuntime(mountEl, {
   onSubmit: (name, value) => {
@@ -144,6 +157,18 @@ const runtime = new DeclarativeRuntime(mountEl, {
             renderAll();
           }
         });
+        break;
+      case "media.playPause":
+        void callBridge("media.command", { command: "play-pause" });
+        break;
+      case "media.next":
+        void callBridge("media.command", { command: "next" });
+        break;
+      case "media.prev":
+        void callBridge("media.command", { command: "prev" });
+        break;
+      case "media.focusTab":
+        void callBridge("media.command", { command: "focus-tab" });
         break;
       case "tabs.navigate":
         if (param) {
@@ -245,6 +270,26 @@ function renderAll(): void {
     state: item.id === currentTheme?.manifest.id ? "active" : "",
   }));
 
+  const activeMedia = currentMedia.active;
+  const mediaTitle = activeMedia
+    ? activeMedia.artist
+      ? `${activeMedia.title} — ${activeMedia.artist}`
+      : activeMedia.title
+    : currentSettings.locale === "en"
+      ? "nothing playing right now"
+      : "nenhuma mídia em reprodução";
+  const mediaSource = activeMedia ? activeMedia.source : "—";
+  const gmActive = currentGameMode.active || currentSettings.game_mode_enabled;
+  const gmLabel = gmActive
+    ? currentGameMode.detected_process
+      ? `[ ON · ${currentGameMode.detected_process} ]`
+      : t("gameMode.on")
+    : currentGameMode.last_exit_at_ms > 0 && currentGameMode.last_exit_saved_mb > 0
+      ? currentSettings.locale === "en"
+        ? `[ OFF · ${currentGameMode.last_exit_saved_mb} MB saved ]`
+        : `[ OFF · ${currentGameMode.last_exit_saved_mb} MB devolvidos ]`
+      : t("gameMode.off");
+
   runtime.render(
     {
       ui: {
@@ -260,21 +305,17 @@ function renderAll(): void {
         sleepingSummary,
       },
       media: {
-        source: "—",
-        title:
-          currentSettings.locale === "en"
-            ? "nothing playing right now"
-            : "nenhuma mídia em reprodução",
+        source: mediaSource,
+        title: mediaTitle,
+        playing: Boolean(activeMedia?.playing),
       },
       blocker: {
         totalBlocked: currentBlocker.total_blocked,
         statusLabel: currentBlocker.enabled ? "ON" : "OFF",
       },
       gameMode: {
-        enabled: currentSettings.game_mode_enabled,
-        label: currentSettings.game_mode_enabled
-          ? t("gameMode.on")
-          : t("gameMode.off"),
+        enabled: gmActive,
+        label: gmLabel,
       },
       theme: {
         name: currentTheme.manifest.name,
@@ -287,6 +328,16 @@ function renderAll(): void {
       themes: themeItems,
     },
   );
+
+  // Sync dynamic play/pause icon & progress bar on any theme's Now Playing widget.
+  const playBtnIcon = mountEl.querySelector('[data-seu-action="media.playPause"] i');
+  if (playBtnIcon) {
+    playBtnIcon.className = activeMedia?.playing ? "fa-solid fa-pause" : "fa-solid fa-play";
+  }
+  const fillEl = mountEl.querySelector<HTMLElement>(".y2k-player-fill");
+  if (fillEl) {
+    fillEl.style.width = `${activeMedia ? Math.max(4, activeMedia.progress_pct) : 0}%`;
+  }
 }
 
 function mountTheme(theme: LoadedTheme): void {
@@ -312,6 +363,12 @@ onBridgeEvent((event) => {
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     renderAll();
+  } else if (event.type === "gameMode") {
+    currentGameMode = event.status;
+    renderAll();
+  } else if (event.type === "media") {
+    currentMedia = event.nowPlaying;
+    renderAll();
   } else if (event.type === "blocker") {
     currentBlocker = event.stats;
     renderAll();
@@ -320,7 +377,7 @@ onBridgeEvent((event) => {
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, themes, snap, mem, blk] = await Promise.all([
+    const [settings, theme, themes, snap, mem, blk, gm, np] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<ThemeSummary[]>("themes.list").catch(() => []),
@@ -329,6 +386,8 @@ async function bootstrap(): Promise<void> {
       }).catch(() => undefined),
       callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
       callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
+      callBridge<GameModeStatus>("gameMode.get").catch(() => undefined),
+      callBridge<NowPlayingState>("media.nowPlaying").catch(() => undefined),
     ]);
 
     if (settings) {
@@ -349,6 +408,12 @@ async function bootstrap(): Promise<void> {
     }
     if (blk) {
       currentBlocker = blk;
+    }
+    if (gm) {
+      currentGameMode = gm;
+    }
+    if (np) {
+      currentMedia = np;
     }
     if (theme) {
       mountTheme(theme);

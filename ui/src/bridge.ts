@@ -69,6 +69,46 @@ export interface BlockerStats {
   last_updated_secs: number | null;
 }
 
+export interface GameModeConfig {
+  auto_detect: boolean;
+  debounce_secs: number;
+  minimized_trigger_secs: number;
+  game_executables: string[];
+}
+
+export interface GameModeStatus {
+  active: boolean;
+  trigger: "manual" | "d3d-fullscreen" | "borderless-fullscreen" | "game-exe" | "minimized" | null;
+  detected_process: string | null;
+  tabs_slept: number;
+  ram_before_mb: number;
+  ram_saved_mb: number;
+  last_exit_saved_mb: number;
+  last_exit_at_ms: number;
+}
+
+export type MediaCommand = "play-pause" | "next" | "prev" | "focus-tab";
+
+export interface MediaSessionInfo {
+  tab_id: number;
+  window_id: number;
+  title: string;
+  artist: string;
+  album: string;
+  artwork: string | null;
+  source: string;
+  playing: boolean;
+  has_prev: boolean;
+  has_next: boolean;
+  progress_pct: number;
+  updated_at_ms: number;
+}
+
+export interface NowPlayingState {
+  active: MediaSessionInfo | null;
+  sessions: MediaSessionInfo[];
+}
+
 export interface CoreSettings {
   locale: "pt-br" | "en";
   search_engine: "duck-duck-go" | "google" | "brave" | "startpage";
@@ -82,6 +122,7 @@ export interface CoreSettings {
   restore_session_on_startup?: boolean;
   site_skins_enabled?: boolean;
   allowed_site_script_themes?: string[];
+  game_mode_config?: GameModeConfig;
 }
 
 export interface DetectedBrowserProfile {
@@ -350,6 +391,8 @@ export type BridgeEvent =
   | { type: "settings"; settings: CoreSettings }
   | { type: "theme"; theme: LoadedTheme }
   | { type: "memory"; stats: MemoryStats }
+  | { type: "gameMode"; status: GameModeStatus }
+  | { type: "media"; nowPlaying: NowPlayingState }
   | { type: "blocker"; stats: BlockerStats }
   | { type: "overlay"; panel: string }
   | { type: "bookmarksChanged" }

@@ -1,6 +1,7 @@
 //! CEF Alloy backend implementation for Windows x64.
 
 use crate::assets::{resolve_seu_url, STRICT_SEU_CSP};
+use crate::game_detector::sample_windows_game_state;
 use crate::metrics::{
     capture_hwnd_thumbnail_jpeg, measure_browser_tree_memory, remove_tab_thumbnail,
 };
@@ -24,6 +25,8 @@ use seu_blocker::{
 };
 use seu_bridge::{apply_studio_mode, handle_raw_request, is_privileged_origin, HostEffect};
 use seu_core::{
+    game_mode::GameModeTransition,
+    media::{sanitize_artwork_url, MediaCommand, MediaSessionInfo},
     shortcuts::{match_shortcut_vk, ShortcutAction},
     BrowserCore, CoreSettings, DevToolsDock, SavedSession, TabId, WindowId, WindowSnapshot,
 };
@@ -1245,6 +1248,111 @@ fn broadcast_memory_all(state: &Arc<Mutex<SharedState>>) {
     }
 }
 
+fn broadcast_game_mode_all(state: &Arc<Mutex<SharedState>>) {
+    let (status, chrome_views, tab_browsers) = {
+        let Ok(guard) = state.lock() else {
+            return;
+        };
+        let mut chrome = Vec::new();
+        for win in guard.windows.values() {
+            if let Some(s) = &win.shell {
+                chrome.push(s.clone());
+            }
+            if let Some(o) = &win.overlay {
+                chrome.push(o.clone());
+            }
+        }
+        let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+        (guard.core.game_mode_status.clone(), chrome, tabs)
+    };
+
+    let payload = serde_json::json!({ "type": "gameMode", "status": status });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
+fn broadcast_media_all(state: &Arc<Mutex<SharedState>>) {
+    let (now_playing, chrome_views, tab_browsers) = {
+        let Ok(guard) = state.lock() else {
+            return;
+        };
+        let mut chrome = Vec::new();
+        for win in guard.windows.values() {
+            if let Some(s) = &win.shell {
+                chrome.push(s.clone());
+            }
+            if let Some(o) = &win.overlay {
+                chrome.push(o.clone());
+            }
+        }
+        let tabs: Vec<Browser> = guard.tab_browsers.values().cloned().collect();
+        (guard.core.now_playing(), chrome, tabs)
+    };
+
+    let payload = serde_json::json!({ "type": "media", "nowPlaying": now_playing });
+    for b in chrome_views {
+        push_js_event(&b, &payload);
+    }
+    for b in tab_browsers {
+        if let Some(frame) = b.main_frame() {
+            let u = CefString::from(&frame.url()).to_string();
+            if is_privileged_origin(&u) {
+                push_js_event(&b, &payload);
+            }
+        }
+    }
+}
+
+fn execute_media_command(state: &Arc<Mutex<SharedState>>, tab_id: TabId, command: MediaCommand) {
+    let (browser, token) = match state.lock() {
+        Ok(g) => (g.tab_browsers.get(&tab_id).cloned(), g.probe_token.clone()),
+        Err(_) => return,
+    };
+    let Some(browser) = browser else {
+        return;
+    };
+    let Some(frame) = browser.main_frame() else {
+        return;
+    };
+    let cmd_str = match command {
+        MediaCommand::PlayPause => "play-pause",
+        MediaCommand::Next => "next",
+        MediaCommand::Prev => "prev",
+        MediaCommand::FocusTab => return,
+    };
+    let Ok(tok_json) = serde_json::to_string(&token) else {
+        return;
+    };
+    let js = format!(
+        r#"(function(){{
+  try {{
+    if (typeof window.__seuMediaExec === 'function') {{
+      window.__seuMediaExec({tok_json}, '{cmd_str}');
+      return;
+    }}
+    var list = Array.prototype.slice.call(document.querySelectorAll('video,audio'));
+    var el = list.find(function(m){{ return !m.paused && !m.ended; }}) || list[0];
+    if (!el) return;
+    if ('{cmd_str}' === 'play-pause') {{ if (el.paused) el.play().catch(function(){{}}); else el.pause(); }}
+    else if ('{cmd_str}' === 'next') {{ el.currentTime = Math.min(el.duration || el.currentTime + 15, el.currentTime + 15); }}
+    else if ('{cmd_str}' === 'prev') {{ el.currentTime = Math.max(0, el.currentTime - 15); }}
+  }} catch(_) {{}}
+}})();"#
+    );
+    let code = CefString::from(js.as_str());
+    let script_url = CefString::from("seu://internal/media-cmd");
+    frame.execute_java_script(Some(&code), Some(&script_url), 0);
+}
+
 fn relayout_window(state: &Arc<Mutex<SharedState>>, window_id: WindowId, width: i32, height: i32) {
     let engine = CefEngine {
         state: state.clone(),
@@ -1808,6 +1916,7 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
                     focus_window_active_view(state, window_id, false);
                 }
                 engine.close_tab_view(tab_id);
+                broadcast_media_all(state);
             }
             HostEffect::SleepTabView { tab_id, .. } => {
                 sleep_tab_browser(state, tab_id);
@@ -1934,6 +2043,11 @@ fn execute_effects(state: &Arc<Mutex<SharedState>>, effects: Vec<HostEffect>) {
             HostEffect::BroadcastTheme => broadcast_theme_all(state),
             HostEffect::RefreshSiteSkins => refresh_site_skins_all(state),
             HostEffect::BroadcastMemory => broadcast_memory_all(state),
+            HostEffect::BroadcastGameMode => broadcast_game_mode_all(state),
+            HostEffect::BroadcastMedia => broadcast_media_all(state),
+            HostEffect::MediaControl { tab_id, command } => {
+                execute_media_command(state, tab_id, command);
+            }
             HostEffect::BroadcastBlocker => broadcast_blocker_all(state),
             HostEffect::UpdateBlockerLists => spawn_blocker_list_updater(state.clone(), true),
             HostEffect::RelayoutWindow { window_id } => {
@@ -2632,6 +2746,99 @@ wrap_display_handler! {
                 return 1;
             }
 
+            let media_prefix = format!("__SEU_MEDIA__{token}:");
+            if let Some(json_str) = msg.strip_prefix(&media_prefix) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    let active = val.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let now_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    let changed_win = self.state.lock().ok().and_then(|mut g| {
+                        let wid = g.core.get_tab(tab_id).map(|t| t.window_id)?;
+                        if !active {
+                            return g.core.update_tab_media(tab_id, None);
+                        }
+                        let title = val
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .chars()
+                            .take(180)
+                            .collect::<String>();
+                        let artist = val
+                            .get("artist")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .chars()
+                            .take(120)
+                            .collect::<String>();
+                        let album = val
+                            .get("album")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .chars()
+                            .take(120)
+                            .collect::<String>();
+                        let source = val
+                            .get("source")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("web")
+                            .trim()
+                            .chars()
+                            .take(80)
+                            .collect::<String>();
+                        let artwork =
+                            sanitize_artwork_url(val.get("artwork").and_then(|v| v.as_str()));
+                        let playing = val
+                            .get("playing")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let has_prev = val
+                            .get("hasPrev")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let has_next = val
+                            .get("hasNext")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let progress_pct = val
+                            .get("progressPct")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0)
+                            .min(100) as u8;
+
+                        let session = MediaSessionInfo {
+                            tab_id,
+                            window_id: wid,
+                            title: if title.is_empty() {
+                                source.clone()
+                            } else {
+                                title
+                            },
+                            artist,
+                            album,
+                            artwork,
+                            source,
+                            playing,
+                            has_prev,
+                            has_next,
+                            progress_pct,
+                            updated_at_ms: now_ms,
+                        };
+                        g.core.update_tab_media(tab_id, Some(session))
+                    });
+                    if let Some(wid) = changed_win {
+                        broadcast_window_state(&self.state, wid);
+                        broadcast_media_all(&self.state);
+                    }
+                }
+                return 1;
+            }
+
             let qa_snap_prefix = format!("__SEU_QA_SNAP__{token}:");
             if let Some(json_str) = msg.strip_prefix(&qa_snap_prefix) {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
@@ -2743,7 +2950,7 @@ wrap_load_handler! {
             frame: Option<&mut Frame>,
             _transition_type: TransitionType,
         ) {
-            let ViewKind::Tab { .. } = self.kind else {
+            let ViewKind::Tab { tab_id, .. } = self.kind else {
                 return;
             };
             let Some(frame) = frame else {
@@ -2753,6 +2960,24 @@ wrap_load_handler! {
                 return;
             }
             let url = CefString::from(&frame.url()).to_string();
+            let (token, cleared_media) = self
+                .state
+                .lock()
+                .ok()
+                .map(|mut g| {
+                    let cleared = g.core.update_tab_media(tab_id, None).is_some();
+                    (g.probe_token.clone(), cleared)
+                })
+                .unwrap_or_default();
+            if cleared_media {
+                broadcast_media_all(&self.state);
+            }
+            if !is_privileged_origin(&url) && !token.is_empty() {
+                let shim_js = build_media_session_shim(&token);
+                let code = CefString::from(shim_js.as_str());
+                let script_url = CefString::from("seu://internal/media-shim");
+                frame.execute_java_script(Some(&code), Some(&script_url), 0);
+            }
             apply_site_skin_to_frame(&self.state, frame, &url, false);
         }
 
@@ -2829,6 +3054,11 @@ wrap_load_handler! {
                 let code = CefString::from(probe_js.as_str());
                 let script_url = CefString::from("seu://internal/probe");
                 frame.execute_java_script(Some(&code), Some(&script_url), 0);
+
+                let shim_js = build_media_session_shim(&token);
+                let shim_code = CefString::from(shim_js.as_str());
+                let shim_url = CefString::from("seu://internal/media-shim");
+                frame.execute_java_script(Some(&shim_code), Some(&shim_url), 0);
             }
 
             if let Some((sx, sy)) = pending_scroll {
@@ -3844,6 +4074,161 @@ fn start_memory_monitor_thread(state: Arc<Mutex<SharedState>>) {
         });
 }
 
+fn build_media_session_shim(token: &str) -> String {
+    format!(
+        r#"(function(){{
+  if (window.__seuMediaShimInstalled) return;
+  window.__seuMediaShimInstalled = true;
+  var TOKEN = "{token}";
+  var PREFIX = "__SEU_MEDIA__" + TOKEN + ":";
+  var handlers = Object.create(null);
+  var lastKey = "";
+  var emitTimer = null;
+
+  try {{
+    var ms = navigator && navigator.mediaSession;
+    if (ms && typeof ms.setActionHandler === 'function') {{
+      var origSet = ms.setActionHandler.bind(ms);
+      ms.setActionHandler = function(action, fn) {{
+        try {{
+          if (typeof fn === 'function') handlers[action] = fn;
+          else delete handlers[action];
+        }} catch(_) {{}}
+        return origSet(action, fn);
+      }};
+    }}
+  }} catch(_) {{}}
+
+  function findPrimaryMedia() {{
+    var list = [];
+    try {{ list = Array.prototype.slice.call(document.querySelectorAll('video,audio')); }} catch(_) {{}}
+    var playing = list.find(function(m){{ return !m.paused && !m.ended && m.readyState > 0; }});
+    if (playing) return playing;
+    var active = list.find(function(m){{ return (m.readyState > 0 || m.currentTime > 0) && (m.duration > 0 || !isNaN(m.duration)); }});
+    return active || list[0] || null;
+  }}
+
+  function collectState() {{
+    var ms = null;
+    try {{ ms = navigator && navigator.mediaSession ? navigator.mediaSession : null; }} catch(_) {{}}
+    var meta = ms && ms.metadata ? ms.metadata : null;
+    var el = findPrimaryMedia();
+    var elPlaying = !!(el && !el.paused && !el.ended);
+    var msPlaying = !!(ms && ms.playbackState === 'playing');
+    var playing = elPlaying || msPlaying;
+    var hasActive = !!(meta || playing || (ms && ms.playbackState === 'paused') || (el && (el.currentTime > 0 || el.readyState >= 2)));
+
+    if (!hasActive) {{
+      return {{ active: false }};
+    }}
+
+    var host = "";
+    try {{ host = (location.hostname || "").replace(/^www\./, ""); }} catch(_) {{}}
+    var title = (meta && meta.title) ? String(meta.title) : (document.title || host || "Media");
+    var artist = (meta && meta.artist) ? String(meta.artist) : "";
+    var album = (meta && meta.album) ? String(meta.album) : "";
+    var artwork = null;
+    try {{
+      if (meta && meta.artwork && meta.artwork.length > 0 && meta.artwork[0] && meta.artwork[0].src) {{
+        artwork = String(meta.artwork[0].src);
+      }}
+    }} catch(_) {{}}
+    var progressPct = 0;
+    try {{
+      if (el && isFinite(el.duration) && el.duration > 0) {{
+        progressPct = Math.max(0, Math.min(100, Math.round((el.currentTime / el.duration) * 100)));
+      }}
+    }} catch(_) {{}}
+
+    var hasPrev = typeof handlers.previoustrack === 'function' || !!document.querySelector('.ytp-prev-button');
+    var hasNext = typeof handlers.nexttrack === 'function' || !!document.querySelector('.ytp-next-button');
+
+    return {{
+      active: true,
+      title: title,
+      artist: artist,
+      album: album,
+      artwork: artwork,
+      source: host || "media",
+      playing: playing,
+      hasPrev: hasPrev,
+      hasNext: hasNext,
+      progressPct: progressPct
+    }};
+  }}
+
+  function emit(force) {{
+    try {{
+      var state = collectState();
+      var key = JSON.stringify(state);
+      if (!force && key === lastKey) return;
+      lastKey = key;
+      console.debug(PREFIX + key);
+    }} catch(_) {{}}
+  }}
+
+  function scheduleEmit() {{
+    if (emitTimer) return;
+    emitTimer = setTimeout(function(){{ emitTimer = null; emit(false); }}, 160);
+  }}
+
+  try {{
+    Object.defineProperty(window, '__seuMediaExec', {{
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: function(tok, cmd) {{
+        if (tok !== TOKEN) return;
+        try {{
+          var el = findPrimaryMedia();
+          var ms = navigator && navigator.mediaSession ? navigator.mediaSession : null;
+          var isPlaying = !!(el && !el.paused && !el.ended) || !!(ms && ms.playbackState === 'playing');
+          if (cmd === 'play-pause') {{
+            if (isPlaying) {{
+              if (typeof handlers.pause === 'function') {{
+                handlers.pause({{ action: 'pause' }});
+              }} else if (el) {{
+                el.pause();
+              }}
+            }} else {{
+              if (typeof handlers.play === 'function') {{
+                handlers.play({{ action: 'play' }});
+              }} else if (el) {{
+                var p = el.play();
+                if (p && typeof p.catch === 'function') p.catch(function(){{}});
+              }}
+            }}
+          }} else if (cmd === 'next') {{
+            if (typeof handlers.nexttrack === 'function') {{
+              handlers.nexttrack({{ action: 'nexttrack' }});
+            }} else {{
+              var nextBtn = document.querySelector('.ytp-next-button');
+              if (nextBtn) nextBtn.click();
+              else if (el && isFinite(el.duration)) el.currentTime = Math.min(el.duration, el.currentTime + 15);
+            }}
+          }} else if (cmd === 'prev') {{
+            if (typeof handlers.previoustrack === 'function') {{
+              handlers.previoustrack({{ action: 'previoustrack' }});
+            }} else {{
+              var prevBtn = document.querySelector('.ytp-prev-button');
+              if (prevBtn) prevBtn.click();
+              else if (el) el.currentTime = Math.max(0, el.currentTime - 15);
+            }}
+          }}
+        }} catch(_) {{}}
+        setTimeout(function(){{ emit(true); }}, 140);
+      }}
+    }});
+  }} catch(_) {{}}
+
+  ['play', 'pause', 'ended', 'loadedmetadata'].forEach(function(evName){{
+    document.addEventListener(evName, scheduleEmit, true);
+  }});
+  setInterval(function(){{ emit(false); }}, 2000);
+}})();"#
+    )
+}
+
 fn build_tab_probe_script(token: &str) -> String {
     format!(
         r#"(function(){{
@@ -3922,6 +4307,22 @@ wrap_task! {
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
 
+            let browser_handles: Vec<NativeWindowHandle> = {
+                let Ok(guard) = self.state.lock() else {
+                    return;
+                };
+                if let Some(host) = guard.host.as_ref() {
+                    guard
+                        .windows
+                        .keys()
+                        .filter_map(|&wid| host.get_window_rect(wid).map(|(h, _)| h))
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            };
+            let game_sample = sample_windows_game_state(now_ms, &browser_handles);
+
             let effects = {
                 let Ok(mut guard) = self.state.lock() else {
                     return;
@@ -3932,11 +4333,38 @@ wrap_task! {
                     mem.process_count,
                 );
 
-                let due = guard.core.select_due_sleep_tabs(now_ms, false);
                 let mut out = Vec::new();
                 let mut touched_windows = Vec::new();
+
+                // Evaluate automatic Game Mode detection (D3D / Borderless excl. browser / .exe / minimized).
+                match guard.core.evaluate_game_probe(&game_sample) {
+                    GameModeTransition::Enter { trigger, process } => {
+                        let slept = guard.core.enter_game_mode(trigger, process, now_ms);
+                        for (wid, tid) in slept {
+                            out.push(HostEffect::SleepTabView {
+                                window_id: wid,
+                                tab_id: tid,
+                            });
+                            if !touched_windows.contains(&wid) {
+                                touched_windows.push(wid);
+                            }
+                        }
+                        out.push(HostEffect::BroadcastSettings);
+                        out.push(HostEffect::BroadcastGameMode);
+                        out.push(HostEffect::BroadcastMedia);
+                    }
+                    GameModeTransition::Exit => {
+                        guard.core.exit_game_mode(now_ms);
+                        out.push(HostEffect::BroadcastSettings);
+                        out.push(HostEffect::BroadcastGameMode);
+                    }
+                    GameModeTransition::None => {}
+                }
+
+                let due = guard.core.select_due_sleep_tabs(now_ms, false);
                 for tid in due {
                     if let Ok(wid) = guard.core.mark_tab_sleeping(tid, false) {
+                        guard.core.clear_tab_media(tid);
                         out.push(HostEffect::SleepTabView {
                             window_id: wid,
                             tab_id: tid,
@@ -3970,6 +4398,7 @@ wrap_task! {
             let after = measure_browser_tree_memory();
             let after_mb = after.total_private_mb();
 
+            let mut broadcast_gm = false;
             if let Ok(mut guard) = self.state.lock() {
                 if let Some((before_mb, before_procs, tab_ids)) = guard.pending_sleep_batch.take() {
                     let delta_mb = before_mb.saturating_sub(after_mb);
@@ -3977,6 +4406,8 @@ wrap_task! {
                     guard
                         .core
                         .record_batch_sleep_ram_delta(&tab_ids, delta_mb, shared);
+                    guard.core.record_game_mode_ram_delta(delta_mb);
+                    broadcast_gm = guard.core.game_mode_status.active;
                 }
                 guard.core.update_os_memory_metrics(
                     after_mb,
@@ -3985,6 +4416,9 @@ wrap_task! {
                 );
             }
             broadcast_memory_all(&self.state);
+            if broadcast_gm {
+                broadcast_game_mode_all(&self.state);
+            }
         }
     }
 }

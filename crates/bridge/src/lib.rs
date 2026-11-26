@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use seu_blocker::{BlockerService, BlockerStats};
 use seu_core::{
+    game_mode::{GameModeConfig, GameModeStatus, GameModeTrigger},
+    media::{MediaCommand, NowPlayingState},
     memory::{MemoryPolicy, MemoryStats},
     shortcuts::QuickShortcut,
     BrowserCore, CoreError, CoreSettings, DevToolsDock, GroupId, Locale, SearchCategory,
@@ -161,8 +163,21 @@ pub enum BridgeRequest {
         category: SearchCategory,
     },
 
+    #[serde(rename = "gameMode.get")]
+    GameModeGet,
     #[serde(rename = "gameMode.toggle")]
     GameModeToggle,
+    #[serde(rename = "gameMode.setConfig")]
+    GameModeSetConfig { config: GameModeConfig },
+
+    #[serde(rename = "media.nowPlaying")]
+    MediaNowPlaying,
+    #[serde(rename = "media.command")]
+    MediaCommand {
+        #[serde(default)]
+        tab_id: Option<TabId>,
+        command: MediaCommand,
+    },
 
     #[serde(rename = "themes.list")]
     ThemesList,
@@ -431,6 +446,8 @@ pub enum BridgeResponse {
     TabsSlept {
         count: usize,
     },
+    GameModeStatus(GameModeStatus),
+    NowPlaying(NowPlayingState),
     BlockerStats(BlockerStats),
     HistoryItems(Vec<HistoryItem>),
     BookmarkItems(Vec<BookmarkItem>),
@@ -567,6 +584,12 @@ pub enum HostEffect {
     BroadcastTheme,
     RefreshSiteSkins,
     BroadcastMemory,
+    BroadcastGameMode,
+    BroadcastMedia,
+    MediaControl {
+        tab_id: TabId,
+        command: MediaCommand,
+    },
     BroadcastBlocker,
     UpdateBlockerLists,
     RelayoutWindow {
@@ -1062,11 +1085,80 @@ pub fn dispatch_request(
                 ],
             })
         }
+        BridgeRequest::GameModeGet => Ok(DispatchOutput {
+            response: BridgeResponse::GameModeStatus(core.game_mode_status.clone()),
+            effects: Vec::new(),
+        }),
         BridgeRequest::GameModeToggle => {
-            core.toggle_game_mode();
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let mut effects = Vec::new();
+            if core.settings.game_mode_enabled {
+                core.exit_game_mode(now_ms);
+            } else {
+                let slept = core.enter_game_mode(GameModeTrigger::Manual, None, now_ms);
+                let mut touched_windows = Vec::new();
+                for (wid, tid) in slept {
+                    effects.push(HostEffect::SleepTabView {
+                        window_id: wid,
+                        tab_id: tid,
+                    });
+                    if !touched_windows.contains(&wid) {
+                        touched_windows.push(wid);
+                    }
+                }
+                for wid in touched_windows {
+                    effects.push(HostEffect::BroadcastState { window_id: wid });
+                }
+            }
+            effects.push(HostEffect::BroadcastSettings);
+            effects.push(HostEffect::BroadcastGameMode);
+            effects.push(HostEffect::BroadcastMedia);
             Ok(DispatchOutput {
                 response: BridgeResponse::Settings(core.settings.clone()),
-                effects: vec![HostEffect::BroadcastSettings],
+                effects,
+            })
+        }
+        BridgeRequest::GameModeSetConfig { config } => {
+            core.set_game_mode_config(config);
+            Ok(DispatchOutput {
+                response: BridgeResponse::Settings(core.settings.clone()),
+                effects: vec![HostEffect::BroadcastSettings, HostEffect::BroadcastGameMode],
+            })
+        }
+        BridgeRequest::MediaNowPlaying => Ok(DispatchOutput {
+            response: BridgeResponse::NowPlaying(core.now_playing()),
+            effects: Vec::new(),
+        }),
+        BridgeRequest::MediaCommand { tab_id, command } => {
+            let resolved_tab = tab_id.or_else(|| core.now_playing().active.map(|s| s.tab_id));
+            let Some(tid) = resolved_tab else {
+                return Ok(DispatchOutput {
+                    response: BridgeResponse::NowPlaying(core.now_playing()),
+                    effects: Vec::new(),
+                });
+            };
+            if command == MediaCommand::FocusTab {
+                let wid = core.activate_tab(tid)?;
+                return Ok(DispatchOutput {
+                    response: BridgeResponse::NowPlaying(core.now_playing()),
+                    effects: vec![
+                        HostEffect::ActivateTabView {
+                            window_id: wid,
+                            tab_id: tid,
+                        },
+                        HostEffect::BroadcastState { window_id: wid },
+                    ],
+                });
+            }
+            Ok(DispatchOutput {
+                response: BridgeResponse::NowPlaying(core.now_playing()),
+                effects: vec![HostEffect::MediaControl {
+                    tab_id: tid,
+                    command,
+                }],
             })
         }
         BridgeRequest::ThemesList => Ok(DispatchOutput {

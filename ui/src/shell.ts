@@ -5,8 +5,10 @@ import {
   onBridgeEvent,
   type BlockerStats,
   type CoreSettings,
+  type GameModeStatus,
   type LoadedTheme,
   type MemoryStats,
+  type NowPlayingState,
   type WindowSnapshot,
 } from "./bridge";
 import { DeclarativeRuntime, type RepeatItem } from "./declarative";
@@ -34,8 +36,21 @@ let currentBlocker: BlockerStats = {
   lists_loaded: 1,
   last_updated_secs: null,
 };
-let activeOverlayPanel: "menu" | "memory" | "blocker" | null = null;
+let activeOverlayPanel: "menu" | "memory" | "blocker" | "media" | null = null;
 let activeUrlBookmarked = false;
+let currentMedia: NowPlayingState = { active: null, sessions: [] };
+let currentGameMode: GameModeStatus = {
+  active: false,
+  trigger: null,
+  detected_process: null,
+  tabs_slept: 0,
+  ram_before_mb: 0,
+  ram_saved_mb: 0,
+  last_exit_saved_mb: 0,
+  last_exit_at_ms: 0,
+};
+let shellLocale: "pt-br" | "en" = "pt-br";
+let exitNoticeDismissedAt = 0;
 
 function getNavTargetTab(snapshot: WindowSnapshot | null) {
   if (!snapshot) return null;
@@ -200,7 +215,7 @@ const runtime = new DeclarativeRuntime(mountEl, {
   },
 });
 
-function toggleOverlayPanel(panel: "menu" | "memory" | "blocker"): void {
+function toggleOverlayPanel(panel: "menu" | "memory" | "blocker" | "media"): void {
   if (activeOverlayPanel === panel) {
     activeOverlayPanel = null;
     void callBridge("overlay.close", { window_id: windowId });
@@ -209,7 +224,7 @@ function toggleOverlayPanel(panel: "menu" | "memory" | "blocker"): void {
   const dpr = window.devicePixelRatio || 1;
   const rect = mountEl.getBoundingClientRect();
   const widthCss = panel === "menu" ? 296 : 350;
-  const heightCss = panel === "menu" ? 560 : 440;
+  const heightCss = panel === "menu" ? 560 : panel === "media" ? 360 : 440;
   const xCss = Math.max(8, window.innerWidth - widthCss - 10);
   const yCss = rect.height + 4;
   activeOverlayPanel = panel;
@@ -229,13 +244,97 @@ document.addEventListener("mousedown", (ev) => {
   if (
     target?.closest('[data-seu-action="overlay.toggleMenu"]') ||
     target?.closest('[data-seu-action="overlay.toggleMemory"]') ||
-    target?.closest('[data-seu-action="overlay.toggleBlocker"]')
+    target?.closest('[data-seu-action="overlay.toggleBlocker"]') ||
+    target?.closest("#seu-shell-media-pill")
   ) {
     return;
   }
   activeOverlayPanel = null;
   void callBridge("overlay.close", { window_id: windowId });
 });
+
+function renderShellStatusPills(): void {
+  const existing = document.getElementById("seu-shell-status-pills");
+  const np = currentMedia.active;
+  const showExitNotice =
+    !currentGameMode.active &&
+    currentGameMode.last_exit_at_ms > exitNoticeDismissedAt &&
+    Date.now() - currentGameMode.last_exit_at_ms < 12000;
+  const shouldShow = Boolean(np || currentGameMode.active || showExitNotice);
+
+  if (!shouldShow) {
+    if (existing) existing.remove();
+    return;
+  }
+
+  // Insert cleanly right before the memory badge so it works across all 9 themes without altering shell height.
+  const anchor =
+    mountEl.querySelector('[data-seu-action="overlay.toggleMemory"]') ??
+    mountEl.querySelector('[data-seu-action="overlay.toggleMenu"]');
+  const parent = anchor?.parentElement;
+  if (!parent) return;
+
+  let container = existing;
+  if (!container || container.parentElement !== parent) {
+    if (container) container.remove();
+    container = document.createElement("span");
+    container.id = "seu-shell-status-pills";
+    container.style.display = "inline-flex";
+    container.style.alignItems = "center";
+    container.style.gap = "4px";
+    container.style.flexShrink = "0";
+    parent.insertBefore(container, anchor);
+  }
+  container.innerHTML = "";
+
+  if (currentGameMode.active) {
+    const gmBtn = document.createElement("button");
+    gmBtn.type = "button";
+    gmBtn.id = "seu-shell-gm-pill";
+    gmBtn.title =
+      shellLocale === "en"
+        ? `Game Mode active (${currentGameMode.tabs_slept} tabs sleeping). Click to turn off.`
+        : `Modo Jogo ativo (${currentGameMode.tabs_slept} abas dormindo). Clique para desativar.`;
+    gmBtn.style.cssText =
+      "display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;border:1px solid var(--seu-accent);background:var(--seu-accent);color:var(--seu-accent-text);font:700 10px/1.2 var(--seu-font-body,sans-serif);cursor:pointer;white-space:nowrap;";
+    gmBtn.innerHTML = `<i class="fa-solid fa-gamepad" aria-hidden="true"></i><span>${shellLocale === "en" ? "GAME" : "JOGO"}</span>`;
+    gmBtn.addEventListener("click", () => {
+      void callBridge("gameMode.toggle");
+    });
+    container.appendChild(gmBtn);
+  } else if (showExitNotice) {
+    const note = document.createElement("button");
+    note.type = "button";
+    note.id = "seu-shell-gm-exit-note";
+    note.style.cssText =
+      "display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;border:1px solid var(--seu-border);background:var(--seu-surface2);color:var(--seu-text);font:600 10px/1.2 var(--seu-font-body,sans-serif);cursor:pointer;white-space:nowrap;";
+    note.textContent =
+      shellLocale === "en"
+        ? `${currentGameMode.last_exit_saved_mb} MB returned during gaming`
+        : `${currentGameMode.last_exit_saved_mb} MB devolvidos durante o jogo`;
+    note.addEventListener("click", () => {
+      exitNoticeDismissedAt = Date.now();
+      renderShellStatusPills();
+    });
+    container.appendChild(note);
+  }
+
+  if (np) {
+    const mediaBtn = document.createElement("button");
+    mediaBtn.type = "button";
+    mediaBtn.id = "seu-shell-media-pill";
+    mediaBtn.title = `${np.title} (${np.source})`;
+    mediaBtn.style.cssText =
+      "display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;border:1px solid var(--seu-border);background:var(--seu-surface2);color:var(--seu-text);font:600 10px/1.2 var(--seu-font-body,sans-serif);cursor:pointer;max-width:128px;overflow:hidden;white-space:nowrap;";
+    mediaBtn.innerHTML = `<i class="fa-solid ${np.playing ? "fa-music" : "fa-pause"}" aria-hidden="true" style="color:var(--seu-accent)"></i><span style="overflow:hidden;text-overflow:ellipsis;"></span>`;
+    const lbl = mediaBtn.querySelector("span");
+    if (lbl) lbl.textContent = np.title;
+    mediaBtn.addEventListener("click", () => {
+      toggleOverlayPanel("media");
+    });
+    container.appendChild(mediaBtn);
+  }
+}
 
 let lastReportedShellHeight = 0;
 
@@ -262,6 +361,7 @@ function renderAll(): void {
 
   document.documentElement.dataset.incognito = currentSnapshot.incognito ? "true" : "false";
   document.documentElement.dataset.split = currentSnapshot.split_tab_id ? "true" : "false";
+  document.documentElement.dataset.gameMode = currentGameMode.active ? "true" : "false";
 
   const activeTab =
     currentSnapshot.tabs.find((tab) => tab.id === currentSnapshot?.active_tab_id) ?? null;
@@ -364,6 +464,7 @@ function renderAll(): void {
     runtime.setInputValue("omnibox", omniboxText);
   }
 
+  renderShellStatusPills();
   requestAnimationFrame(() => reportShellHeight());
 }
 
@@ -385,6 +486,7 @@ onBridgeEvent((event) => {
   } else if (event.type === "bookmarksChanged") {
     void refreshActiveBookmarkState().then(() => renderAll());
   } else if (event.type === "settings") {
+    shellLocale = event.settings.locale;
     setLocale(event.settings.locale);
     renderAll();
   } else if (event.type === "theme") {
@@ -392,6 +494,12 @@ onBridgeEvent((event) => {
   } else if (event.type === "memory") {
     currentMemory = event.stats;
     renderAll();
+  } else if (event.type === "gameMode") {
+    currentGameMode = event.status;
+    renderAll();
+  } else if (event.type === "media") {
+    currentMedia = event.nowPlaying;
+    renderShellStatusPills();
   } else if (event.type === "blocker") {
     currentBlocker = event.stats;
     renderAll();
@@ -410,7 +518,7 @@ onBridgeEvent((event) => {
 
 async function bootstrap(): Promise<void> {
   try {
-    const [settings, theme, snap, mem, blk] = await Promise.all([
+    const [settings, theme, snap, mem, blk, gm, np] = await Promise.all([
       callBridge<CoreSettings>("settings.get").catch(() => undefined),
       callBridge<LoadedTheme>("themes.getActive").catch(() => undefined),
       callBridge<WindowSnapshot>("windows.getSnapshot", {
@@ -418,10 +526,19 @@ async function bootstrap(): Promise<void> {
       }).catch(() => undefined),
       callBridge<MemoryStats>("memory.getStats").catch(() => undefined),
       callBridge<BlockerStats>("blocker.getStats").catch(() => undefined),
+      callBridge<GameModeStatus>("gameMode.get").catch(() => undefined),
+      callBridge<NowPlayingState>("media.nowPlaying").catch(() => undefined),
     ]);
 
     if (settings?.locale) {
+      shellLocale = settings.locale;
       setLocale(settings.locale);
+    }
+    if (gm) {
+      currentGameMode = gm;
+    }
+    if (np) {
+      currentMedia = np;
     }
     if (snap) {
       currentSnapshot = snap;
