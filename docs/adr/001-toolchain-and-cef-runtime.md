@@ -48,3 +48,15 @@ Restrições do projeto:
   - **YouTube Home (estabilizado, 9 processos):** `377.3 MB` Private Bytes (`682.1 MB` Working Set).
   - **YouTube vídeo tocando (8 processos):** `344.9 MB` Private Bytes (`635.9 MB` Working Set) — `browser` `80.9 MB`, `renderer` principal `199.7 MB`, `renderer` subframe `16.2 MB`, `NetworkService` `12.7 MB`, `VideoCaptureService` `11.6 MB`, `gpu-process` `9.9 MB`, `AudioService` `7.1 MB`, `StorageService` `6.8 MB`.
 - **Observação para a Fase 1:** o CEF emitiu warning pedindo `CefSettings.root_cache_path` customizado; na Fase 1 configuraremos explicitamente `%LOCALAPPDATA%\SeuNavegador\profile`.
+
+## Fechamento na Fase 11 (Distribuição, CRT Estático e Sandbox CEF)
+1. **CRT Estático (`+crt-static`) + Auditoria Automática de PE (`packaging/audit-pe-deps.mjs`):**
+   - O build de release no CI compila `seu-navegador.exe` com `RUSTFLAGS="-C target-feature=+crt-static"`, eliminando a dependência de `VCRUNTIME140.dll`.
+   - O script `packaging/audit-pe-deps.mjs` analisa a tabela de imports PE de `seu-navegador.exe` e de todas as DLLs empacotadas em toda execução de CI/Release, falhando o build caso qualquer runtime externo da Microsoft (`VCRUNTIME*`, `MSVCP*`, `WebView2*`, `.NET`) apareça.
+2. **Status transparente do Sandbox CEF na v1:**
+   - Na v1, o navegador roda com `no_sandbox = 1` porque a integração de `cef_sandbox.lib` no Windows via `cef-rs` 156 exige inicialização C++ pré-`main` e alinhamento de bibliotecas estáticas ainda não suportado de forma limpa pelo wrapper seguro em Rust.
+   - Mitigações ativas em camadas: isolamento multiprocesso do Chromium (renderers separados), fronteira rígida da ponte `window.seu` restrita exclusivamente a origens `seu://`, CSP estrita sem rede externa nem `eval`, sanitizador HTML/CSS em Rust e opt-in explícito obrigatório para JS de skins importadas.
+3. **Formatos de distribuição (sem MSIX):**
+   - **Instalador Windows (`seu-navegador-<ver>-win64-setup.exe`):** gerado via **Inno Setup 6** (`packaging/seu-navegador.iss`), instalação *per-user* sem pedir UAC de administrador (com opção de instalar para todos), atalhos no Menu Iniciar/Desktop e registro do ícone `.seutheme`.
+   - **Pacote Portátil (`seu-navegador-<ver>-win64-portable.zip`):** extrair e executar sem instalação.
+   - **Integridade:** `SHA256SUMS.txt` publicado automaticamente no GitHub Releases via `.github/workflows/release.yml` em toda tag `v*` ou disparo manual (`workflow_dispatch`).

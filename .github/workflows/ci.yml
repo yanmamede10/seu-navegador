@@ -116,17 +116,21 @@ jobs:
       - name: Run tests (Windows workspace)
         run: cargo test --workspace
 
-      - name: Build release binary
+      - name: Build release binary (static CRT — zero VCRUNTIME deps)
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo build --release --bin seu-navegador
 
-      - name: Package portable zip
+      - name: Stage portable bundle & audit PE DLL dependencies
         shell: pwsh
         run: |
           $outDir = "dist\seu-navegador-win64"
+          if (Test-Path $outDir) { Remove-Item -Recurse -Force $outDir }
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
           Copy-Item -Path "$env:CEF_PATH\*" -Destination $outDir -Recurse -Force
           Copy-Item -Path "target\release\seu-navegador.exe" -Destination $outDir -Force
+          Copy-Item -Path "LICENSE-MIT","LICENSE-APACHE" -Destination $outDir -Force
 
           foreach ($devDir in @("include", "libcef_dll", "cmake", "Release", "Debug")) {
             $p = Join-Path $outDir $devDir
@@ -134,13 +138,37 @@ jobs:
           }
           Get-ChildItem -Path $outDir -Include "*.lib","*.exp","*.pdb","*.cmake","CMakeLists.txt" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
+          node packaging/audit-pe-deps.mjs "$outDir"
+
           Compress-Archive -Path "$outDir\*" -DestinationPath "dist\seu-navegador-win64.zip" -Force
+
+      - name: Build Windows installer (Inno Setup, no MSIX)
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DAppVersion=0.1.0" "/DDistDir=..\dist\seu-navegador-win64" "/DOutputDir=..\dist" "packaging\seu-navegador.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist\*.exe, dist\*.zip | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,2)}}
 
       - name: Upload portable Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: seu-navegador-win64
           path: dist/seu-navegador-win64.zip
+          retention-days: 14
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seu-navegador-setup-win64
+          path: dist/seu-navegador-*-win64-setup.exe
           retention-days: 14
 
       - name: Upload lightweight exe-only artifact

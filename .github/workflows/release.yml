@@ -1,0 +1,205 @@
+name: Release (Windows x64 Portable + Installer)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0-beta.1 or v1.0.0)"
+        required: true
+        default: "v0.1.0-beta.1"
+      prerelease:
+        description: "Mark GitHub Release as pre-release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Build, Audit & Publish Release (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        shell: pwsh
+        run: |
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "${{ inputs.tag }}"
+          } else {
+            "${{ github.ref_name }}"
+          }
+          $ver = $tag.TrimStart("v")
+          $isPre = if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "${{ inputs.prerelease }}"
+          } elseif ($tag -match "-") {
+            "true"
+          } else {
+            "false"
+          }
+          echo "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          echo "RELEASE_VERSION=$ver" >> $env:GITHUB_ENV
+          echo "IS_PRERELEASE=$isPre" >> $env:GITHUB_ENV
+          Write-Host "Release tag=$tag version=$ver prerelease=$isPre"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI bundle
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry & build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Restore CEF binaries cache
+        id: cache-cef
+        uses: actions/cache/restore@v4
+        with:
+          path: ~\cef-cache
+          key: win64-cef-156-v1
+
+      - name: Export CEF directory (if cache miss)
+        if: steps.cache-cef.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cargo install export-cef-dir --version "^156" --locked
+          export-cef-dir --force "$env:USERPROFILE\cef-cache"
+
+      - name: Save CEF binaries cache
+        if: always() && steps.cache-cef.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~\cef-cache
+          key: win64-cef-156-v1
+
+      - name: Configure CEF environment
+        shell: pwsh
+        run: |
+          $cefDir = "$env:USERPROFILE\cef-cache"
+          echo "CEF_PATH=$cefDir" >> $env:GITHUB_ENV
+          echo "$cefDir" >> $env:GITHUB_PATH
+
+      - name: Run formatting, Clippy & tests
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
+      - name: Build release binary (static CRT — zero VCRUNTIME deps)
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --bin seu-navegador
+
+      - name: Stage portable bundle & audit zero Microsoft runtime deps
+        shell: pwsh
+        run: |
+          $outDir = "dist\seu-navegador-win64"
+          if (Test-Path $outDir) { Remove-Item -Recurse -Force $outDir }
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          Copy-Item -Path "$env:CEF_PATH\*" -Destination $outDir -Recurse -Force
+          Copy-Item -Path "target\release\seu-navegador.exe" -Destination $outDir -Force
+          Copy-Item -Path "LICENSE-MIT","LICENSE-APACHE","README.md","README.pt-BR.md" -Destination $outDir -Force
+
+          foreach ($devDir in @("include", "libcef_dll", "cmake", "Release", "Debug")) {
+            $p = Join-Path $outDir $devDir
+            if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+          }
+          Get-ChildItem -Path $outDir -Include "*.lib","*.exp","*.pdb","*.cmake","CMakeLists.txt" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+
+          node packaging/audit-pe-deps.mjs "$outDir"
+
+          $zipName = "seu-navegador-$($env:RELEASE_VERSION)-win64-portable.zip"
+          Compress-Archive -Path "$outDir\*" -DestinationPath "dist\$zipName" -Force
+
+      - name: Build Inno Setup installer (no MSIX, no UAC required)
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DAppVersion=$($env:RELEASE_VERSION)" "/DDistDir=..\dist\seu-navegador-win64" "/DOutputDir=..\dist" "packaging\seu-navegador.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Generate SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $zip = "dist\seu-navegador-$($env:RELEASE_VERSION)-win64-portable.zip"
+          $exe = "dist\seu-navegador-$($env:RELEASE_VERSION)-win64-setup.exe"
+          $lines = @()
+          foreach ($f in @($zip, $exe)) {
+            $h = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLowerInvariant()
+            $lines += "$h  $(Split-Path -Leaf $f)"
+          }
+          Set-Content -Path "dist\SHA256SUMS.txt" -Value ($lines -join "`n") -NoNewline
+          Get-Content "dist\SHA256SUMS.txt"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = $env:RELEASE_TAG
+          $ver = $env:RELEASE_VERSION
+          $zip = "dist\seu-navegador-$ver-win64-portable.zip"
+          $exe = "dist\seu-navegador-$ver-win64-setup.exe"
+          $sums = "dist\SHA256SUMS.txt"
+
+          $notes = @"
+          ## Seu Navegador $tag (Windows x64)
+
+          **Zero Microsoft runtime dependencies** (statically linked CRT, verified by automated PE import audit — no WebView2, Edge, .NET, or Visual C++ Redistributable required).
+
+          ### Downloads
+          - **Installer (recommended):** ``seu-navegador-$ver-win64-setup.exe`` — per-user install (no admin UAC required), Start Menu & Desktop shortcuts, ``.seutheme`` icon registration.
+          - **Portable ZIP:** ``seu-navegador-$ver-win64-portable.zip`` — extract anywhere and run ``seu-navegador.exe``.
+          - **Checksums:** ``SHA256SUMS.txt``
+
+          ### Highlights
+          - **9 official hot-swappable themes** + **Visual Theme Editor** (WCAG AA + offline fonts + ``.seutheme`` import/export)
+          - **Integrated Seu Studio IDE & Multi-Agent Orchestrator** (``Ctrl+Shift+E`` — Browser / Split View / Studio)
+          - **Real RAM savings** (179.8 MB 1-tab baseline vs 468.2 MB Chrome; 704.4 MB post-sleep on 15 tabs vs 1466.7 MB Chrome)
+          - **Brave Adblock engine** (EasyList + EasyPrivacy + uBlock + YouTube scriptlets)
+          - **Per-site skins** (flagship YouTube Y2K Maximal skin + strict JS opt-in security)
+          - **Win32 Game Mode** + **Now Playing** ``MediaSession`` controls
+          "@
+
+          $exists = $false
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { $exists = $true }
+
+          if ($exists) {
+            gh release upload $tag $zip $exe $sums --clobber
+          } else {
+            $preFlag = if ($env:IS_PRERELEASE -eq "true") { "--prerelease" } else { "" }
+            if ($preFlag) {
+              gh release create $tag $zip $exe $sums --title "Seu Navegador $tag" --notes $notes --prerelease
+            } else {
+              gh release create $tag $zip $exe $sums --title "Seu Navegador $tag" --notes $notes
+            }
+          }

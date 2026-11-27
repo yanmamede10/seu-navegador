@@ -122,8 +122,13 @@ seu-navegador/
 
 Consulte o [ADR 001](./docs/adr/001-toolchain-and-cef-runtime.md) e o [ADR 002](./docs/adr/002-chromium-memory-flags.md) para detalhes da toolchain e flags de memória do Chromium.
 
-### Baixar Artefato Portátil (Windows x64)
-Cada push na `main` gera automaticamente um `.zip` portátil para Windows x64 via GitHub Actions (`.github/workflows/ci.yml`). Basta extrair e abrir `seu-navegador.exe` — sem instaladores ou runtimes da Microsoft.
+### Baixar para Windows x64 (Zero Runtimes da Microsoft)
+Baixe a versão mais recente direto em [**GitHub Releases**](https://github.com/yanmamede10/seu-navegador/releases):
+- **Instalador (`seu-navegador-<ver>-win64-setup.exe`):** Feito com Inno Setup 6 (sem MSIX). Instala por usuário sem exigir UAC de administrador, cria atalhos no Menu Iniciar/Desktop e registra o ícone de pacotes `.seutheme`.
+- **Portátil ZIP (`seu-navegador-<ver>-win64-portable.zip`):** Basta extrair em qualquer pasta e abrir `seu-navegador.exe`.
+- **Autossuficiência auditada:** Compilado com `-C target-feature=+crt-static` e validado em todo build pelo script [`packaging/audit-pe-deps.mjs`](./packaging/audit-pe-deps.mjs), garantindo zero dependência de `VCRUNTIME`, `MSVCP`, WebView2 ou `.NET`.
+
+> **Publicar uma nova versão (mantenedores):** Crie e envie uma tag (`git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1`) ou dispare `.github/workflows/release.yml` pelo GitHub Actions para compilar, auditar, gerar `SHA256SUMS.txt` e publicar automaticamente o ZIP portátil e o instalador `.exe`.
 
 ### Desenvolvimento Local
 ```bash
@@ -146,6 +151,7 @@ cargo build --release -p seu-navegador
 - **Windows x64 na v1:** Desktop Linux/macOS e Android (Kotlin + GeckoView via UniFFI) ficam para versões futuras.
 - **Sem sincronização em nuvem ou extensões da Chrome Web Store:** Foco em leveza local, bloqueador embutido e extensibilidade por temas/skins.
 - **Renderers compartilhados do Chromium:** Quando duas abas dividem o mesmo processo renderer, dormir apenas uma delas pode não devolver RAM imediatamente ao SO até todas do processo dormirem; o Seu Navegador detecta e informa isso honestamente no popover de Memória.
+- **Sandbox CEF (`no_sandbox` na v1):** Conforme documentado no [ADR 001](./docs/adr/001-toolchain-and-cef-runtime.md), a v1 roda com `no_sandbox = 1` devido às limitações de integração da `cef_sandbox.lib` no `cef-rs` 156 Windows; a separação multiprocesso, isolamento estrito da ponte `seu://`, CSP, sanitização HTML/CSS em Rust e opt-in de JS importado permanecem ativos.
 
 ---
 

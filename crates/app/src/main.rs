@@ -19,7 +19,7 @@ fn main() {
 
     let base_dir = app_data_dir();
     init_logging(&base_dir.join("logs"));
-    info!("Starting Seu Navegador (Phase 1 skeleton)");
+    info!("Starting Seu Navegador v{}", env!("CARGO_PKG_VERSION"));
 
     let db_path = base_dir.join("seu-navegador.db");
     let storage = match Storage::open(&db_path) {

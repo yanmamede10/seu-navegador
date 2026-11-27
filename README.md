@@ -122,8 +122,13 @@ seu-navegador/
 
 See [ADR 001](./docs/adr/001-toolchain-and-cef-runtime.md) and [ADR 002](./docs/adr/002-chromium-memory-flags.md) for toolchain and Chromium memory flag details.
 
-### Download Prebuilt Portable Artifact (Windows x64)
-Every push to `main` builds and uploads a portable Windows x64 zip via GitHub Actions (`.github/workflows/ci.yml`). Extract and run `seu-navegador.exe` — no installers or Microsoft runtimes required.
+### Download for Windows x64 (Zero Microsoft Runtimes Required)
+Download the latest release directly from [**GitHub Releases**](https://github.com/yanmamede10/seu-navegador/releases):
+- **Installer (`seu-navegador-<ver>-win64-setup.exe`):** Built with Inno Setup 6 (no MSIX). Installs per-user without admin UAC prompt, creates Start Menu/Desktop shortcuts, and registers `.seutheme` file icons.
+- **Portable ZIP (`seu-navegador-<ver>-win64-portable.zip`):** Extract anywhere and run `seu-navegador.exe`.
+- **Verified self-contained:** Compiled with `-C target-feature=+crt-static` and verified on every CI/Release build by [`packaging/audit-pe-deps.mjs`](./packaging/audit-pe-deps.mjs) to confirm zero `VCRUNTIME` / `MSVCP` / WebView2 / `.NET` runtime dependencies.
+
+> **Publishing a new release (maintainers):** Push a tag (`git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1`) or trigger `.github/workflows/release.yml` via GitHub Actions to build, audit, checksum (`SHA256SUMS.txt`), and publish both the portable ZIP and Setup installer automatically.
 
 ### Local Development
 ```bash
@@ -147,6 +152,7 @@ Transparency matters:
 - **Windows x64 only for v1:** Linux/macOS desktop and Android (Kotlin + GeckoView via UniFFI) are planned future targets.
 - **No cloud sync or Chrome Web Store extensions:** Focused on local speed, built-in adblocking, and native theme/site-skin extensibility.
 - **Shared Chromium renderers:** When two tabs share a renderer process, sleeping only one of them may not immediately return OS memory until all tabs in that renderer sleep; Seu Navegador detects and reports this honestly in the Memory Popover rather than faking savings.
+- **CEF Sandbox (`no_sandbox` in v1):** As documented in [ADR 001](./docs/adr/001-toolchain-and-cef-runtime.md), v1 runs with `no_sandbox = 1` due to `cef-rs` 156 Windows `cef_sandbox.lib` integration constraints; multi-process separation, strict `seu://`-only bridge gating, CSP, Rust HTML/CSS sanitization, and imported site-JS opt-in remain enforced.
 
 ---
 
