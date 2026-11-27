@@ -59,7 +59,7 @@ impl Win32WindowHost {
         REGISTER_ONCE.call_once(|| unsafe {
             let hinstance = GetModuleHandleW(std::ptr::null());
             let class_name = wide_null(WINDOW_CLASS);
-            let icon_res_id = 1usize as *const u16;
+            let icon_res_id = std::ptr::without_provenance::<u16>(1);
             let h_icon = LoadImageW(
                 hinstance,
                 icon_res_id,
