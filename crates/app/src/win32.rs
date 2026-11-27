@@ -19,15 +19,16 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetWindowLongPtrW,
-    GetWindowRect, IsZoomed, LoadCursorW, PostMessageW, RegisterClassExW, SetCursor,
-    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, CS_DBLCLKS, CS_HREDRAW,
-    CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT,
-    HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, IDC_SIZENS, IDC_SIZEWE, MINMAXINFO,
-    NCCALCSIZE_PARAMS, SC_KEYMENU, SC_MOVE, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_GETMINMAXINFO, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
-    WM_SYSCOMMAND, WNDCLASSEXW, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetSystemMetrics,
+    GetWindowLongPtrW, GetWindowRect, IsZoomed, LoadCursorW, LoadImageW, PostMessageW,
+    RegisterClassExW, SetCursor, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, HTBOTTOM, HTBOTTOMLEFT,
+    HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, IDC_SIZENS,
+    IDC_SIZEWE, IMAGE_ICON, LR_DEFAULTCOLOR, MINMAXINFO, NCCALCSIZE_PARAMS, SC_KEYMENU, SC_MOVE,
+    SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_GETMINMAXINFO,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SETCURSOR,
+    WM_SETFOCUS, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
 };
 
 const WINDOW_CLASS: &str = "SeuNavegadorFramelessWindow";
@@ -58,6 +59,23 @@ impl Win32WindowHost {
         REGISTER_ONCE.call_once(|| unsafe {
             let hinstance = GetModuleHandleW(std::ptr::null());
             let class_name = wide_null(WINDOW_CLASS);
+            let icon_res_id = 1usize as *const u16;
+            let h_icon = LoadImageW(
+                hinstance,
+                icon_res_id,
+                IMAGE_ICON,
+                GetSystemMetrics(SM_CXICON),
+                GetSystemMetrics(SM_CYICON),
+                LR_DEFAULTCOLOR,
+            );
+            let h_icon_sm = LoadImageW(
+                hinstance,
+                icon_res_id,
+                IMAGE_ICON,
+                GetSystemMetrics(SM_CXSMICON),
+                GetSystemMetrics(SM_CYSMICON),
+                LR_DEFAULTCOLOR,
+            );
             let wc = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
                 style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
@@ -65,12 +83,12 @@ impl Win32WindowHost {
                 cbClsExtra: 0,
                 cbWndExtra: 0,
                 hInstance: hinstance,
-                hIcon: std::ptr::null_mut(),
+                hIcon: h_icon,
                 hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
                 hbrBackground: std::ptr::null_mut(),
                 lpszMenuName: std::ptr::null(),
                 lpszClassName: class_name.as_ptr(),
-                hIconSm: std::ptr::null_mut(),
+                hIconSm: h_icon_sm,
             };
             RegisterClassExW(&wc);
         });

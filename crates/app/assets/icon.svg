@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="20" y1="16" x2="236" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#131D63"/>
+      <stop offset="100%" stop-color="#070B24"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF2E93"/>
+      <stop offset="55%" stop-color="#8A7CFF"/>
+      <stop offset="100%" stop-color="#4FD8FF"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="90" y1="42" x2="170" y2="214" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D7FF66"/>
+      <stop offset="100%" stop-color="#8BFF00"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="54" fill="url(#bg)" stroke="url(#rim)" stroke-width="14"/>
+  <g transform="rotate(-26 128 128)">
+    <ellipse cx="128" cy="128" rx="92" ry="38" stroke="#4FD8FF" stroke-width="12"/>
+  </g>
+  <path d="M144 40L72 136H122L106 216L186 114H134L144 40Z" fill="url(#bolt)" stroke="#070B24" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M196 50L202 66L218 72L202 78L196 94L190 78L174 72L190 66Z" fill="#FFFFFF"/>
+  <circle cx="64" cy="186" r="9" fill="#FF2E93"/>
+</svg>
