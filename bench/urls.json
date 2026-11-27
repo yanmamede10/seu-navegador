@@ -1,0 +1,20 @@
+{
+  "description": "Standard 15-tab developer & everyday browsing workload for reproducible RAM benchmarking (SPEC §12).",
+  "urls": [
+    "https://github.com/rust-lang/rust",
+    "https://docs.rs/tokio/latest/tokio/",
+    "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+    "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+    "https://news.ycombinator.com/",
+    "https://crates.io/",
+    "https://www.rust-lang.org/",
+    "https://duckduckgo.com/?q=seu+navegador+rust",
+    "https://www.youtube.com/",
+    "https://godotengine.org/",
+    "https://sqlite.org/index.html",
+    "https://www.typescriptlang.org/docs/",
+    "https://vite.dev/guide/",
+    "https://lobste.rs/",
+    "https://example.com/"
+  ]
+}
